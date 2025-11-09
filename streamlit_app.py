@@ -126,20 +126,37 @@ def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
         _write_polygon_coords(ns, poly_elem, cell)
 
     return etree.tostring(kml, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode("utf-8")
+def generate_grid_only_kml(cells_ll, merged_ll):
+    ns = "http://www.opengis.net/kml/2.2"
+    kml = etree.Element("{%s}kml" % ns)
+    doc = etree.SubElement(kml, "{%s}Document" % ns)
+    etree.SubElement(doc, "{%s}name" % ns).text = "Grid Only"
+    etree.SubElement(doc, "{%s}description" % ns).text = "Generated Grid"
+    style = etree.SubElement(doc, "{%s}Style" % ns, id="gridStyle")
+    ls = etree.SubElement(style, "{%s}LineStyle" % ns)
+    etree.SubElement(ls, "{%s}color" % ns).text = "ff0000ff"
+    etree.SubElement(ls, "{%s}width" % ns).text = "1"
+    ps = etree.SubElement(style, "{%s}PolyStyle" % ns)
+    etree.SubElement(ps, "{%s}fill" % ns).text = "0"
+    for i, cell in enumerate(cells_ll, start=1):
+        pm = etree.SubElement(doc, "{%s}Placemark" % ns)
+        etree.SubElement(pm, "{%s}name" % ns).text = f"{i}"
+        etree.SubElement(pm, "{%s}styleUrl" % ns).text = "#gridStyle"
+        poly = etree.SubElement(pm, "{%s}Polygon" % ns)
+        _write_polygon_coords(ns, poly, cell)
+    return etree.tostring(kml, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode("utf-8")
 
 # ----------------------------------------------------------------------
 # 📄 PDF REPORT GENERATOR (with satellite background + legend)
 # ----------------------------------------------------------------------
 def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overlay_present,
                               title_text, density, area_invasive):
+    import tempfile
     centroid = merged_ll.centroid
     minx, miny, maxx, maxy = merged_ll.bounds
 
-    # Download static satellite map from Yandex (free, open)
-    sat_url = (
-        f"https://static-maps.yandex.ru/1.x/?lang=en_US&ll={(minx+maxx)/2},{(miny+maxy)/2}"
-        f"&z=14&l=sat&size=650,450"
-    )
+    # Download satellite background
+    sat_url = f"https://static-maps.yandex.ru/1.x/?lang=en_US&ll={(minx+maxx)/2},{(miny+maxy)/2}&z=14&l=sat&size=650,450"
     tmp_dir = tempfile.gettempdir()
     map_image_path = os.path.join(tmp_dir, "aoi_satellite.png")
     try:
@@ -153,77 +170,61 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
     pdf.set_auto_page_break(auto=True, margin=12)
     pdf.add_page()
 
-    # --------------------------------------------------------
-# ✅ Font setup — downloads automatically if missing
-# --------------------------------------------------------
+    # ✅ Ensure font
     font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
-
     if not os.path.exists(font_path):
         try:
             url = "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans.ttf"
             r = requests.get(url, timeout=15)
-            r.raise_for_status()
             with open(font_path, "wb") as f:
                 f.write(r.content)
-            st.info("Downloaded DejaVuSans.ttf successfully.")
-        except Exception as e:
-            st.warning(f"⚠️ Could not download font automatically: {e}")
+        except Exception:
+            pass
 
-    try:
-        pdf.add_font("DejaVu", "", font_path, uni=True)
-        pdf.add_font("DejaVu", "B", font_path, uni=True)
-        pdf.add_font("DejaVu", "I", font_path, uni=True)
+    if os.path.exists(font_path):
+        pdf.add_font("DejaVu", "", font_path)
+        pdf.add_font("DejaVu", "B", font_path)
+        pdf.add_font("DejaVu", "I", font_path)
         pdf.set_font("DejaVu", "B", 14)
-    except Exception:
-        st.warning("⚠️ Falling back to Helvetica font (Unicode may not display).")
+    else:
         pdf.set_font("Helvetica", "B", 14)
-    # Title
-    pdf.cell(0, 8, title_text, ln=1, align="C")
+
+    pdf.cell(0, 8, "KML GRID GENERATOR v3.0 - FIELD REPORT", ln=1, align="C")
     pdf.ln(3)
 
-    # Satellite Image
     if map_image_path and os.path.exists(map_image_path):
         pdf.image(map_image_path, x=15, y=25, w=180)
         pdf.ln(95)
     else:
         pdf.ln(100)
 
-    # Legend
-    pdf.set_font("DejaVu", "", 11)
-    pdf.cell(0, 8, "Legend:", ln=1)
-    pdf.set_font("DejaVu", "", 10)
-
+    pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "", 11)
     legend_lines = [
         f"Range: {user_inputs.get('range_name','')}",
         f"RF: {user_inputs.get('rf_name','')}",
         f"Beat: {user_inputs.get('beat_name','')}",
         f"Density: {density}",
         f"Area of Invasive: {area_invasive} Ha",
-        f"Each Box = 1 Ha",
-        f"Grid Cell Size: {cell_size} m",
+        f"Grid Size: {cell_size} m",
         f"Overlay Included: {'Yes' if overlay_present else 'No'}",
-        f"Generated: {datetime.now().strftime('%d-%b-%Y %H:%M')}",
+        f"Generated: {datetime.now().strftime('%d-%b-%Y %H:%M')}"
     ]
     for line in legend_lines:
         pdf.cell(0, 6, line, ln=1)
 
     pdf.ln(4)
-    pdf.set_font("DejaVu", "I", 9)
-    pdf.multi_cell(
-        0, 5,
-        "Note: Satellite background automatically fetched. "
-        "Report generated using KML Grid Generator v3.0 — Rasipuram Range."
-    )
+    pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "I", 9)
+    pdf.multi_cell(0, 5,
+                   "Note: Satellite map automatically fetched. "
+                   "Report generated by KML Grid Generator v3.0.")
 
+    # ✅ Return as bytes (not bytearray)
     result = pdf.output(dest="S")
-    if isinstance(result, (bytes, bytearray)):
-        return result
+    if isinstance(result, bytearray):
+        result = bytes(result)
     elif isinstance(result, str):
-        return result.encode("latin1", errors="ignore")
-    elif hasattr(result, "getvalue"):
-        return result.getvalue()
-    else:
-        raise TypeError(f"Unexpected output type: {type(result)}")
+        result = result.encode("latin1", errors="ignore")
+    return result
 
 # ----------------------------------------------------------------------
 # 🧰 SIDEBAR UI
@@ -338,4 +339,5 @@ if st.session_state["generated"]:
                                    file_name="grid_report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI, set labels, then press ▶ Generate Grid.")
+
 
