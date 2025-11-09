@@ -237,7 +237,7 @@ def build_pdf_report_standard(
     pdf.image(map_img_path, x=15, y=55, w=180)
 
     # Move legend far below map (↓ this fixes overlap)
-    pdf.set_y(175)  
+    pdf.set_y(255)  
     pdf.set_draw_color(150, 150, 150)
     pdf.line(15, pdf.get_y(), 195, pdf.get_y())  # separator line
     pdf.ln(6)
@@ -446,6 +446,7 @@ if st.session_state["generated"]:
                                    mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
 
 
