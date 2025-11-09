@@ -148,8 +148,9 @@ def build_pdf_report_standard(
         f"Density: {density}",
         f"Area of Invasive: {area_invasive} Ha",
         f"Cell Size: {cell_size} m",
-        f"Overlay Included: {'Yes' if overlay_present else 'No'}"
+        f"Overlay Included: {'Yes' if overlay_present is not None and not overlay_present.empty else 'No'}"
     ]
+
     y = pdf.get_y() + 5
     for i in range(4):
         pdf.text(20, y + i * 6, col1[i])
@@ -327,4 +328,5 @@ if st.session_state["generated"]:
                     pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
