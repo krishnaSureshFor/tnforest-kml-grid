@@ -164,61 +164,68 @@ def build_pdf_report_standard(
     cells_ll, merged_ll, user_inputs, cell_size,
     overlay_gdf, title_text, density, area_invasive
 ):
-    """Generate a professional multi-page PDF report of invasive grid analysis."""
+    import matplotlib.pyplot as plt
+    import contextily as ctx
+    from matplotlib_scalebar.scalebar import ScaleBar
+
     pdf = FPDF("P", "mm", "A4")
     pdf.set_auto_page_break(auto=True, margin=15)
     EMBLEM_PATH = os.path.join(os.path.dirname(__file__), "tn_emblem.png")
 
-    def safe_image(path, x, y, w, h):
-        if os.path.exists(path):
-            try:
-                pdf.image(path, x=x, y=y, w=w, h=h)
-            except Exception as e:
-                print(f"⚠️ Emblem skipped: {e}")
-
-    # =============== HEADER ===============
+    # ========== HEADER ==========
     def header_section():
-        pdf.set_fill_color(0, 100, 0)
-        pdf.rect(0, 0, 210, 20, "F")
-        safe_image(EMBLEM_PATH, x=95, y=2, w=20, h=16)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.text(25, 14, "FOREST")
-        pdf.text(160, 14, "DEPARTMENT")
-        pdf.set_text_color(0, 0, 0)
-        pdf.ln(25)
+        if os.path.exists(EMBLEM_PATH):
+            pdf.image(EMBLEM_PATH, x=95, y=6, w=20)
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.cell(0, 30, "FOREST DEPARTMENT", ln=1, align="C")
 
-    # =============== FOOTER ===============
+    # ========== FOOTER ==========
     def footer_section():
         pdf.set_y(-15)
         pdf.set_font("Helvetica", "I", 8)
         pdf.cell(0, 10, f"Developed by Rasipuram Range    |    Page {pdf.page_no()}", 0, 0, "C")
 
+    # ========== 1️⃣ PAGE 1 (Map Page) ==========
     pdf.add_page()
     header_section()
 
-    # Title
     pdf.set_font("Helvetica", "B", 14)
-    pdf.cell(0, 8, title_text, ln=1, align="C")
+    pdf.cell(0, 10, title_text, ln=1, align="C")
 
-    # =============== MAP TILE ===============
-    minx, miny, maxx, maxy = merged_ll.bounds
-    center_lon, center_lat = (minx + maxx) / 2, (miny + maxy) / 2
-    sat_url = f"https://static-maps.yandex.ru/1.x/?lang=en_US&ll={center_lon},{center_lat}&z=14&l=sat&size=650,450"
+    # Create composited map using matplotlib + contextily
+    import tempfile
+    import geopandas as gpd
+
     tmp_dir = tempfile.gettempdir()
-    map_img = os.path.join(tmp_dir, "aoi_map.png")
-    try:
-        r = requests.get(sat_url, timeout=15)
-        with open(map_img, "wb") as f:
-            f.write(r.content)
-    except Exception:
-        map_img = None
+    map_img_path = os.path.join(tmp_dir, "composite_map.png")
 
-    if map_img and os.path.exists(map_img):
-        pdf.image(map_img, x=15, y=40, w=180)
+    fig, ax = plt.subplots(figsize=(6.5, 5))
+    ax.set_facecolor("white")
+
+    merged_gdf = gpd.GeoSeries([merged_ll], crs="EPSG:4326").to_crs(3857)
+    grid_gdf = gpd.GeoSeries(cells_ll, crs="EPSG:4326").to_crs(3857)
+
+    # Draw layers
+    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3, label="AOI")
+    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1, label="Grid")
+
+    if overlay_gdf is not None and not overlay_gdf.empty:
+        overlay_gdf = overlay_gdf.to_crs(3857)
+        overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3, label="Overlay")
+
+    ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery)
+    ax.legend(loc="lower right", fontsize=8)
+    ax.axis("off")
+    plt.tight_layout()
+    fig.savefig(map_img_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+    # Insert map
+    if os.path.exists(map_img_path):
+        pdf.image(map_img_path, x=15, y=50, w=180)
     pdf.set_y(140)
 
-    # =============== LEGEND (two columns) ===============
+    # ========== Legend (2-column) ==========
     pdf.set_font("Helvetica", "", 11)
     col1 = [
         f"Range: {user_inputs.get('range_name','')}",
@@ -232,25 +239,28 @@ def build_pdf_report_standard(
         f"Cell Size: {cell_size} m",
         f"Overlay Included: {'Yes' if (overlay_gdf is not None and not overlay_gdf.empty) else 'No'}",
     ]
-    y = pdf.get_y() + 5
+    y = pdf.get_y() + 8
     for i in range(4):
-        pdf.text(20, y + i * 6, col1[i])
+        pdf.text(25, y + i * 6, col1[i])
         pdf.text(110, y + i * 6, col2[i])
     pdf.ln(35)
+    footer_section()
 
-    # =============== TABLE: Invasive Grid Area Details ===============
+    # ========== 2️⃣ PAGE 2+ (Grid Details) ==========
+    pdf.add_page()
+    header_section()
+
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "Invasive Grid Area Details (within Overlay)", ln=1)
+    pdf.cell(0, 10, "Invasive Grid Area Details (within Overlay)", ln=1, align="C")
 
     pdf.set_font("Helvetica", "B", 11)
     pdf.cell(15, 8, "S.No", 1, align="C")
-    pdf.cell(30, 8, "Grid ID", 1, align="C")
-    pdf.cell(35, 8, "Area (ha)", 1, align="C")
-    pdf.cell(50, 8, "Centroid Lat", 1, align="C")
-    pdf.cell(50, 8, "Centroid Lon", 1, align="C")
+    pdf.cell(35, 8, "Grid ID", 1, align="C")
+    pdf.cell(70, 8, "Centroid Lat", 1, align="C")
+    pdf.cell(70, 8, "Centroid Lon", 1, align="C")
     pdf.ln(8)
+    pdf.set_font("Helvetica", "", 10)
 
-    # Overlay union (in 4326)
     overlay_union = None
     if overlay_gdf is not None and not overlay_gdf.empty:
         og = overlay_gdf
@@ -260,54 +270,34 @@ def build_pdf_report_standard(
             og = og.to_crs(4326)
         overlay_union = og.unary_union
 
-    # Calculate areas
-    pdf.set_font("Helvetica", "", 10)
-    total_area = 0.0
     centroid = merged_ll.centroid
     utm = utm_crs_for_lonlat(centroid.x, centroid.y)
-    filtered = []
+
+    row_no = 1
     if overlay_union is not None:
         for idx, geom in enumerate(cells_ll, start=1):
-            if overlay_union.intersects(geom):  # ✅ only grids inside overlay
-                area_ha = _accurate_area_ha_utm(geom, utm)
+            if overlay_union.intersects(geom):
                 lat, lon = geom.centroid.y, geom.centroid.x
-                filtered.append((idx, area_ha, lat, lon))
+                pdf.cell(15, 7, str(row_no), 1)
+                pdf.cell(35, 7, f"G{idx}", 1)
+                pdf.cell(70, 7, f"{lat:.6f}", 1, align="R")
+                pdf.cell(70, 7, f"{lon:.6f}", 1, align="R")
+                pdf.ln(7)
+                if pdf.get_y() > 270:  # page overflow
+                    footer_section()
+                    pdf.add_page()
+                    header_section()
+                    pdf.set_font("Helvetica", "B", 11)
+                    pdf.cell(15, 8, "S.No", 1, align="C")
+                    pdf.cell(35, 8, "Grid ID", 1, align="C")
+                    pdf.cell(70, 8, "Centroid Lat", 1, align="C")
+                    pdf.cell(70, 8, "Centroid Lon", 1, align="C")
+                    pdf.ln(8)
+                    pdf.set_font("Helvetica", "", 10)
+                row_no += 1
 
-    # Write rows (multi-page safe)
-    row_no = 1
-    for idx, area_ha, lat, lon in filtered:
-        total_area += area_ha
-        pdf.cell(15, 7, str(row_no), 1)
-        pdf.cell(30, 7, f"G{idx}", 1)
-        pdf.cell(35, 7, f"{area_ha:.2f}", 1, align="R")
-        pdf.cell(50, 7, f"{lat:.6f}", 1, align="R")
-        pdf.cell(50, 7, f"{lon:.6f}", 1, align="R")
-        pdf.ln(7)
-        if pdf.get_y() > 270:  # handle overflow
-            footer_section()
-            pdf.add_page()
-            header_section()
-            pdf.set_font("Helvetica", "B", 11)
-            pdf.cell(15, 8, "S.No", 1, align="C")
-            pdf.cell(30, 8, "Grid ID", 1, align="C")
-            pdf.cell(35, 8, "Area (ha)", 1, align="C")
-            pdf.cell(50, 8, "Centroid Lat", 1, align="C")
-            pdf.cell(50, 8, "Centroid Lon", 1, align="C")
-            pdf.ln(8)
-            pdf.set_font("Helvetica", "", 10)
-        row_no += 1
-
-    # Total
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(45, 7, "TOTAL", 1)
-    pdf.cell(35, 7, f"{total_area:.2f}", 1, align="R")
-    pdf.cell(100, 7, "", 1)
-    pdf.ln(10)
-
-    # =============== FOOTER ===============
     footer_section()
 
-    # Return bytes safely
     result = pdf.output(dest="S")
     if isinstance(result, str):
         result = result.encode("latin1", errors="ignore")
@@ -424,4 +414,5 @@ if st.session_state["generated"]:
                                    mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
