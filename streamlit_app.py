@@ -153,24 +153,30 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
     pdf.set_auto_page_break(auto=True, margin=12)
     pdf.add_page()
 
-    # Font setup
+    # --------------------------------------------------------
+# ✅ Font setup — downloads automatically if missing
+# --------------------------------------------------------
     font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
+
     if not os.path.exists(font_path):
         try:
-            url = "https://github.com/dejavu-fonts/dejavu-fonts/raw/version_2_37/ttf/DejaVuSans.ttf"
-            r = requests.get(url, timeout=10)
+            url = "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans.ttf"
+            r = requests.get(url, timeout=15)
+            r.raise_for_status()
             with open(font_path, "wb") as f:
                 f.write(r.content)
-        except Exception:
-            pass
+            st.info("Downloaded DejaVuSans.ttf successfully.")
+        except Exception as e:
+            st.warning(f"⚠️ Could not download font automatically: {e}")
 
-    if os.path.exists(font_path):
-        pdf.add_font("DejaVu", "", font_path)
-        pdf.add_font("DejaVu", "B", font_path)
+    try:
+        pdf.add_font("DejaVu", "", font_path, uni=True)
+        pdf.add_font("DejaVu", "B", font_path, uni=True)
+        pdf.add_font("DejaVu", "I", font_path, uni=True)
         pdf.set_font("DejaVu", "B", 14)
-    else:
+    except Exception:
+        st.warning("⚠️ Falling back to Helvetica font (Unicode may not display).")
         pdf.set_font("Helvetica", "B", 14)
-
     # Title
     pdf.cell(0, 8, title_text, ln=1, align="C")
     pdf.ln(3)
@@ -332,3 +338,4 @@ if st.session_state["generated"]:
                                    file_name="grid_report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI, set labels, then press ▶ Generate Grid.")
+
