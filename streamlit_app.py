@@ -227,19 +227,21 @@ def build_pdf_report_standard(
 
     # ---- Insert Map ----
     pdf.image(map_img_path, x=15, y=55, w=180)
-    pdf.set_y(150)  # move below map
+
+    # Move legend far below map (↓ this fixes overlap)
+    pdf.set_y(170)  
     pdf.set_draw_color(150, 150, 150)
     pdf.line(15, pdf.get_y(), 195, pdf.get_y())  # separator line
-    pdf.ln(5)
+    pdf.ln(6)
 
     # ---- Legend Box ----
     pdf.set_fill_color(245, 245, 240)
     pdf.set_draw_color(180, 180, 180)
     legend_y = pdf.get_y()
-    pdf.rect(15, legend_y, 180, 38, style="FD")
+    pdf.rect(15, legend_y, 180, 40, style="FD")
 
     pdf.set_font("Helvetica", "", 11)
-    y_start = legend_y + 9
+    y_start = legend_y + 10
     col1 = [
         f"Range: {user_inputs.get('range_name','')}",
         f"RF: {user_inputs.get('rf_name','')}",
@@ -300,7 +302,8 @@ def build_pdf_report_standard(
                     pdf.ln(7)
                     row_no += 1
 
-                    if pdf.get_y() > 265:  # new page if table overflows
+                    # add new page only when needed (no blank even pages)
+                    if pdf.get_y() > 265:
                         footer_section()
                         pdf.add_page()
                         header_section()
@@ -311,7 +314,6 @@ def build_pdf_report_standard(
                         pdf.cell(75, 8, "Longitude", 1, align="C")
                         pdf.ln(8)
                         pdf.set_font("Helvetica", "", 10)
-
     else:
         pdf.cell(0, 8, "No overlay polygons detected.", 1, align="C")
 
@@ -436,6 +438,7 @@ if st.session_state["generated"]:
                                    mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
 
 
