@@ -164,8 +164,9 @@ def build_pdf_report_standard(
     cells_ll, merged_ll, user_inputs, cell_size,
     overlay_gdf, title_text, density, area_invasive
 ):
+    """Generate a professional multi-page PDF report of invasive grid analysis."""
     pdf = FPDF("P", "mm", "A4")
-    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.set_auto_page_break(auto=True, margin=15)
     EMBLEM_PATH = os.path.join(os.path.dirname(__file__), "tn_emblem.png")
 
     def safe_image(path, x, y, w, h):
@@ -175,25 +176,32 @@ def build_pdf_report_standard(
             except Exception as e:
                 print(f"⚠️ Emblem skipped: {e}")
 
-    # ---------- PAGE 1 ----------
-    pdf.add_page()
+    # =============== HEADER ===============
+    def header_section():
+        pdf.set_fill_color(0, 100, 0)
+        pdf.rect(0, 0, 210, 20, "F")
+        safe_image(EMBLEM_PATH, x=95, y=2, w=20, h=16)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.text(25, 14, "FOREST")
+        pdf.text(160, 14, "DEPARTMENT")
+        pdf.set_text_color(0, 0, 0)
+        pdf.ln(25)
 
-    # Header bar + emblem + text
-    pdf.set_fill_color(0, 100, 0)  # dark green
-    pdf.rect(0, 0, 210, 20, "F")
-    safe_image(EMBLEM_PATH, x=95, y=2, w=20, h=16)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.text(25, 14, "FOREST")
-    pdf.text(160, 14, "DEPARTMENT")
-    pdf.set_text_color(0, 0, 0)
+    # =============== FOOTER ===============
+    def footer_section():
+        pdf.set_y(-15)
+        pdf.set_font("Helvetica", "I", 8)
+        pdf.cell(0, 10, f"Developed by Rasipuram Range    |    Page {pdf.page_no()}", 0, 0, "C")
+
+    pdf.add_page()
+    header_section()
 
     # Title
-    pdf.ln(20)
     pdf.set_font("Helvetica", "B", 14)
     pdf.cell(0, 8, title_text, ln=1, align="C")
 
-    # Satellite map (top view)
+    # =============== MAP TILE ===============
     minx, miny, maxx, maxy = merged_ll.bounds
     center_lon, center_lat = (minx + maxx) / 2, (miny + maxy) / 2
     sat_url = f"https://static-maps.yandex.ru/1.x/?lang=en_US&ll={center_lon},{center_lat}&z=14&l=sat&size=650,450"
@@ -206,13 +214,11 @@ def build_pdf_report_standard(
     except Exception:
         map_img = None
 
-    # Place map image
     if map_img and os.path.exists(map_img):
         pdf.image(map_img, x=15, y=40, w=180)
-    # move cursor below image area
     pdf.set_y(140)
 
-    # Legend (two columns) below the map in white space
+    # =============== LEGEND (two columns) ===============
     pdf.set_font("Helvetica", "", 11)
     col1 = [
         f"Range: {user_inputs.get('range_name','')}",
@@ -230,10 +236,9 @@ def build_pdf_report_standard(
     for i in range(4):
         pdf.text(20, y + i * 6, col1[i])
         pdf.text(110, y + i * 6, col2[i])
+    pdf.ln(35)
 
-    pdf.ln(30)
-
-    # Invasive Grid Area Details (ONLY cells intersecting overlay)
+    # =============== TABLE: Invasive Grid Area Details ===============
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 8, "Invasive Grid Area Details (within Overlay)", ln=1)
 
@@ -245,7 +250,7 @@ def build_pdf_report_standard(
     pdf.cell(50, 8, "Centroid Lon", 1, align="C")
     pdf.ln(8)
 
-    # Build overlay union in 4326 (if present)
+    # Overlay union (in 4326)
     overlay_union = None
     if overlay_gdf is not None and not overlay_gdf.empty:
         og = overlay_gdf
@@ -255,24 +260,20 @@ def build_pdf_report_standard(
             og = og.to_crs(4326)
         overlay_union = og.unary_union
 
-    # Collect rows (only intersecting overlay)
+    # Calculate areas
     pdf.set_font("Helvetica", "", 10)
     total_area = 0.0
     centroid = merged_ll.centroid
     utm = utm_crs_for_lonlat(centroid.x, centroid.y)
     filtered = []
-
     if overlay_union is not None:
         for idx, geom in enumerate(cells_ll, start=1):
-            if overlay_union.intersects(geom):
+            if overlay_union.intersects(geom):  # ✅ only grids inside overlay
                 area_ha = _accurate_area_ha_utm(geom, utm)
                 lat, lon = geom.centroid.y, geom.centroid.x
                 filtered.append((idx, area_ha, lat, lon))
-    else:
-        # No overlay: no rows as per your request (strictly inside overlay only)
-        filtered = []
 
-    # Write rows with soft pagination (if needed)
+    # Write rows (multi-page safe)
     row_no = 1
     for idx, area_ha, lat, lon in filtered:
         total_area += area_ha
@@ -282,19 +283,29 @@ def build_pdf_report_standard(
         pdf.cell(50, 7, f"{lat:.6f}", 1, align="R")
         pdf.cell(50, 7, f"{lon:.6f}", 1, align="R")
         pdf.ln(7)
+        if pdf.get_y() > 270:  # handle overflow
+            footer_section()
+            pdf.add_page()
+            header_section()
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.cell(15, 8, "S.No", 1, align="C")
+            pdf.cell(30, 8, "Grid ID", 1, align="C")
+            pdf.cell(35, 8, "Area (ha)", 1, align="C")
+            pdf.cell(50, 8, "Centroid Lat", 1, align="C")
+            pdf.cell(50, 8, "Centroid Lon", 1, align="C")
+            pdf.ln(8)
+            pdf.set_font("Helvetica", "", 10)
         row_no += 1
 
-    # Total row
+    # Total
     pdf.set_font("Helvetica", "B", 10)
     pdf.cell(45, 7, "TOTAL", 1)
     pdf.cell(35, 7, f"{total_area:.2f}", 1, align="R")
     pdf.cell(100, 7, "", 1)
     pdf.ln(10)
 
-    # Footer
-    pdf.set_y(-15)
-    pdf.set_font("Helvetica", "I", 8)
-    pdf.cell(0, 10, "Developed by Rasipuram Range    |    Page 1", 0, 0, "C")
+    # =============== FOOTER ===============
+    footer_section()
 
     # Return bytes safely
     result = pdf.output(dest="S")
@@ -303,7 +314,6 @@ def build_pdf_report_standard(
     elif isinstance(result, bytearray):
         result = bytes(result)
     return result
-
 # ================================================================
 # SIDEBAR
 # ================================================================
@@ -414,3 +424,4 @@ if st.session_state["generated"]:
                                    mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
