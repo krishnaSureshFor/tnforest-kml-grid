@@ -79,21 +79,34 @@ def _write_polygon_coords(ns, parent_polygon_elem, geom):
 # ================================================================
 # 📄 PDF REPORT GENERATOR (2 pages)
 # ================================================================
-def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size,
-                              overlay_present, title_text, density, area_invasive):
+def build_pdf_report_standard(
+    cells_ll, merged_ll, user_inputs, cell_size,
+    overlay_present, title_text, density, area_invasive
+):
+    import tempfile
     pdf = FPDF("P", "mm", "A4")
     pdf.set_auto_page_break(auto=True, margin=12)
 
-    emblem_path = os.path.join(os.path.dirname(__file__), "tn_emblem.png")
+    # 🔰 Tamil Nadu emblem (safe load)
+    EMBLEM_PATH = os.path.join(os.path.dirname(__file__), "tn_emblem.png")
 
-    # ================= PAGE 1 =================
+    def safe_image(pdf, path, x, y, w, h):
+        """Safely load an image without breaking the app."""
+        if os.path.exists(path):
+            try:
+                pdf.image(path, x=x, y=y, w=w, h=h)
+            except Exception as e:
+                print(f"⚠️ Emblem skipped due to error: {e}")
+        else:
+            print("⚠️ Emblem image not found, skipping...")
+
+    # ==================== PAGE 1 ====================
     pdf.add_page()
-
-    # header bar
     pdf.set_fill_color(0, 100, 0)
     pdf.rect(0, 0, 210, 20, "F")
-    if os.path.exists(emblem_path):
-        pdf.image(emblem_path, x=95, y=2, w=20)
+
+    # Header section
+    safe_image(pdf, EMBLEM_PATH, x=95, y=2, w=20, h=20)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "B", 14)
     pdf.text(25, 14, "FOREST")
@@ -101,19 +114,21 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size,
 
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Helvetica", "B", 14)
-    pdf.ln(20)
+    pdf.ln(22)
     pdf.cell(0, 8, title_text, ln=1, align="C")
 
-    # Download satellite map (central view)
+    # Satellite map download
     centroid = merged_ll.centroid
     minx, miny, maxx, maxy = merged_ll.bounds
-    center_lon, center_lat = (minx+maxx)/2, (miny+maxy)/2
+    center_lon, center_lat = (minx + maxx) / 2, (miny + maxy) / 2
     sat_url = f"https://static-maps.yandex.ru/1.x/?lang=en_US&ll={center_lon},{center_lat}&z=14&l=sat&size=650,450"
     tmp_dir = tempfile.gettempdir()
     map_img = os.path.join(tmp_dir, "aoi_map.png")
+
     try:
         r = requests.get(sat_url, timeout=15)
-        with open(map_img, "wb") as f: f.write(r.content)
+        with open(map_img, "wb") as f:
+            f.write(r.content)
     except Exception:
         map_img = None
 
@@ -121,7 +136,7 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size,
         pdf.image(map_img, x=15, y=40, w=180)
     pdf.set_y(140)
 
-    # legend in two columns
+    # Legend below map (2 columns)
     pdf.set_font("Helvetica", "", 11)
     col1 = [
         f"Range: {user_inputs.get('range_name','')}",
@@ -137,26 +152,22 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size,
     ]
     y = pdf.get_y() + 5
     for i in range(4):
-        pdf.text(20, y + i*6, col1[i])
-        pdf.text(110, y + i*6, col2[i])
+        pdf.text(20, y + i * 6, col1[i])
+        pdf.text(110, y + i * 6, col2[i])
 
     pdf.set_y(175)
     pdf.set_font("Helvetica", "I", 9)
     pdf.multi_cell(0, 5, "Developed by Rasipuram Range")
 
-    # footer with page num
     pdf.set_y(-15)
     pdf.set_font("Helvetica", "I", 8)
     pdf.cell(0, 10, f"Page {pdf.page_no()} / 2", 0, 0, "C")
 
-    # ================= PAGE 2 =================
+    # ==================== PAGE 2 ====================
     pdf.add_page()
-
-    # header bar again
     pdf.set_fill_color(0, 100, 0)
     pdf.rect(0, 0, 210, 20, "F")
-    if os.path.exists(emblem_path):
-        pdf.image(emblem_path, x=95, y=2, w=20)
+    safe_image(pdf, EMBLEM_PATH, x=95, y=2, w=20, h=20)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "B", 14)
     pdf.text(25, 14, "FOREST")
@@ -176,7 +187,7 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size,
     pdf.cell(60, 8, "Longitude", 1)
     pdf.ln(8)
     pdf.set_font("Helvetica", "", 10)
-    if overlay_present:
+    if overlay_present is not None:
         idx = 1
         for geom in overlay_present.geometry:
             if geom.geom_type == "Polygon":
@@ -223,7 +234,6 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size,
 
     result = pdf.output(dest="S").encode("latin1", errors="ignore")
     return result
-
 # ================================================================
 # 🧰 STREAMLIT SIDEBAR
 # ================================================================
@@ -317,3 +327,4 @@ if st.session_state["generated"]:
                     pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
