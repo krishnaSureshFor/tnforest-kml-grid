@@ -23,3 +23,17 @@ pydeck==0.9.1
 pyarrow==21.0.0
 watchdog==6.0.0
 gitpython==3.1.45
+
+# New ADD
+fpdf2
+geopandas
+folium
+streamlit-folium
+lxml
+contextily
+matplotlib
+requests
+pyproj
+shapely
+
+
