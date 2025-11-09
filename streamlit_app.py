@@ -166,35 +166,33 @@ def build_pdf_report_standard(
 ):
     import matplotlib.pyplot as plt
     import contextily as ctx
-    from matplotlib_scalebar.scalebar import ScaleBar
+    import tempfile
+    import geopandas as gpd
 
     pdf = FPDF("P", "mm", "A4")
     pdf.set_auto_page_break(auto=True, margin=15)
     EMBLEM_PATH = os.path.join(os.path.dirname(__file__), "tn_emblem.png")
 
-    # ========== HEADER ==========
+    # ================= HEADER =================
     def header_section():
         if os.path.exists(EMBLEM_PATH):
             pdf.image(EMBLEM_PATH, x=95, y=6, w=20)
         pdf.set_font("Helvetica", "B", 16)
-        pdf.cell(0, 30, "FOREST DEPARTMENT", ln=1, align="C")
+        pdf.cell(0, 30, "FOREST DEPARTMENT", align="C", new_x="LMARGIN", new_y="NEXT")
 
-    # ========== FOOTER ==========
+    # ================= FOOTER =================
     def footer_section():
         pdf.set_y(-15)
         pdf.set_font("Helvetica", "I", 8)
-        pdf.cell(0, 10, f"Developed by Rasipuram Range    |    Page {pdf.page_no()}", 0, 0, "C")
+        pdf.cell(0, 10,
+                 f"Developed by Rasipuram Range    |    Page {pdf.page_no()}",
+                 0, 0, "C")
 
-    # ========== 1️⃣ PAGE 1 (Map Page) ==========
+    # ================= PAGE 1 (MAP PAGE) =================
     pdf.add_page()
     header_section()
-
     pdf.set_font("Helvetica", "B", 14)
-    pdf.cell(0, 10, title_text, ln=1, align="C")
-
-    # Create composited map using matplotlib + contextily
-    import tempfile
-    import geopandas as gpd
+    pdf.cell(0, 8, title_text, align="C", new_x="LMARGIN", new_y="NEXT")
 
     tmp_dir = tempfile.gettempdir()
     map_img_path = os.path.join(tmp_dir, "composite_map.png")
@@ -204,28 +202,24 @@ def build_pdf_report_standard(
 
     merged_gdf = gpd.GeoSeries([merged_ll], crs="EPSG:4326").to_crs(3857)
     grid_gdf = gpd.GeoSeries(cells_ll, crs="EPSG:4326").to_crs(3857)
-
-    # Draw layers
-    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3, label="AOI")
-    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1, label="Grid")
+    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3)
+    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1)
 
     if overlay_gdf is not None and not overlay_gdf.empty:
         overlay_gdf = overlay_gdf.to_crs(3857)
-        overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3, label="Overlay")
+        overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3)
 
     ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery)
-    ax.legend(loc="lower right", fontsize=8)
     ax.axis("off")
     plt.tight_layout()
     fig.savefig(map_img_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
-    # Insert map
     if os.path.exists(map_img_path):
         pdf.image(map_img_path, x=15, y=50, w=180)
     pdf.set_y(140)
 
-    # ========== Legend (2-column) ==========
+    # ================= LEGEND =================
     pdf.set_font("Helvetica", "", 11)
     col1 = [
         f"Range: {user_inputs.get('range_name','')}",
@@ -246,12 +240,13 @@ def build_pdf_report_standard(
     pdf.ln(35)
     footer_section()
 
-    # ========== 2️⃣ PAGE 2+ (Grid Details) ==========
+    # ================= PAGE 2+ (GRID DETAILS) =================
     pdf.add_page()
     header_section()
 
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 10, "Invasive Grid Area Details (within Overlay)", ln=1, align="C")
+    pdf.cell(0, 10, "Invasive Grid Area Details (within Overlay)",
+              align="C", new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_font("Helvetica", "B", 11)
     pdf.cell(15, 8, "S.No", 1, align="C")
@@ -264,14 +259,8 @@ def build_pdf_report_standard(
     overlay_union = None
     if overlay_gdf is not None and not overlay_gdf.empty:
         og = overlay_gdf
-        if og.crs is None:
-            og = og.set_crs(4326)
-        else:
-            og = og.to_crs(4326)
+        og = og.set_crs(4326, allow_override=True)
         overlay_union = og.unary_union
-
-    centroid = merged_ll.centroid
-    utm = utm_crs_for_lonlat(centroid.x, centroid.y)
 
     row_no = 1
     if overlay_union is not None:
@@ -283,7 +272,7 @@ def build_pdf_report_standard(
                 pdf.cell(70, 7, f"{lat:.6f}", 1, align="R")
                 pdf.cell(70, 7, f"{lon:.6f}", 1, align="R")
                 pdf.ln(7)
-                if pdf.get_y() > 270:  # page overflow
+                if pdf.get_y() > 270:
                     footer_section()
                     pdf.add_page()
                     header_section()
@@ -298,11 +287,12 @@ def build_pdf_report_standard(
 
     footer_section()
 
+    # ================= RETURN SAFE BYTES =================
     result = pdf.output(dest="S")
-    if isinstance(result, str):
-        result = result.encode("latin1", errors="ignore")
-    elif isinstance(result, bytearray):
+    if isinstance(result, bytearray):
         result = bytes(result)
+    elif isinstance(result, str):
+        result = result.encode("latin1", errors="ignore")
     return result
 # ================================================================
 # SIDEBAR
@@ -414,5 +404,6 @@ if st.session_state["generated"]:
                                    mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
 
