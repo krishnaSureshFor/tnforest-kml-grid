@@ -132,16 +132,17 @@ def build_pdf_report_standard(cells_ll, merged_ll, overlay_gdf, user_inputs,
     grid_gdf = gpd.GeoDataFrame(geometry=cells_ll, crs="EPSG:4326").to_crs(3857)
     overlay_gdf = overlay_gdf.to_crs(3857) if overlay_gdf is not None else None
 
-    # --- Compose map image (zoomed out slightly) ---
-    fig, ax = plt.subplots(figsize=(8, 5.8))
-    aoi_gdf.boundary.plot(ax=ax, color="red", linewidth=1.2, label="AOI")
-    grid_gdf.boundary.plot(ax=ax, color="yellow", linewidth=0.8, label="Grid")
+    # --- Create map (zoomed out slightly, with padding) ---
+    fig, ax = plt.subplots(figsize=(8, 4.8))  # slightly smaller height
+    aoi_gdf.boundary.plot(ax=ax, color="red", linewidth=1.2)
+    grid_gdf.boundary.plot(ax=ax, color="yellow", linewidth=0.6)
     if overlay_gdf is not None and not overlay_gdf.empty:
-        overlay_gdf.boundary.plot(ax=ax, color="orange", linewidth=1.5, label="Overlay")
-    ctx.add_basemap(ax, source=ctx.providers.Esri.WorldImagery, zoom=13)  # slightly zoomed out
+        overlay_gdf.boundary.plot(ax=ax, color="orange", linewidth=1.5)
+    ctx.add_basemap(ax, source=ctx.providers.Esri.WorldImagery, zoom=12, attribution=False)
     ax.set_axis_off()
+    plt.tight_layout(pad=0)
     img_path = os.path.join(tempfile.gettempdir(), "final_map.png")
-    plt.savefig(img_path, bbox_inches="tight", pad_inches=0.1, dpi=200)
+    plt.savefig(img_path, bbox_inches="tight", pad_inches=0, dpi=250)
     plt.close(fig)
 
     # --- Build PDF ---
@@ -149,6 +150,7 @@ def build_pdf_report_standard(cells_ll, merged_ll, overlay_gdf, user_inputs,
     pdf.set_auto_page_break(auto=True, margin=10)
     pdf.add_page()
 
+    # Font setup
     font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
     if os.path.exists(font_path):
         pdf.add_font("DejaVu", "", font_path, uni=True)
@@ -158,14 +160,18 @@ def build_pdf_report_standard(cells_ll, merged_ll, overlay_gdf, user_inputs,
     else:
         pdf.set_font("Helvetica", "B", 14)
 
+    # --- Title ---
     pdf.cell(0, 8, title_text, ln=1, align="C")
-    pdf.image(img_path, x=15, y=28, w=180)  # map placement
-    pdf.set_y(150)
 
-    # === 2-column legend just below map ===
+    # --- Map image (smaller, fixed) ---
+    pdf.image(img_path, x=15, y=28, w=180, h=95)  # fixed height
+    pdf.set_y(130)  # start legend after map ends
+
+    # --- 2-column legend neatly below map ---
     pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "", 11)
-    col_width = 95
-    row_height = 6
+    pdf.set_fill_color(245, 245, 245)
+    pdf.cell(0, 7, "Legend", ln=1, align="L", fill=True)
+
     left_data = [
         f"Range: {user_inputs.get('range_name','')}",
         f"Beat: {user_inputs.get('beat_name','')}",
@@ -178,19 +184,19 @@ def build_pdf_report_standard(cells_ll, merged_ll, overlay_gdf, user_inputs,
         f"Area of Invasive: {area_invasive} Ha",
         f"Overlay: {'Yes' if overlay_present else 'No'}"
     ]
-    pdf.set_fill_color(240, 240, 240)
-    pdf.cell(0, 7, "Legend", ln=1, align="L", fill=True)
+
+    col_width = 95
+    row_height = 6
     for l, r in zip(left_data, right_data):
         pdf.cell(col_width, row_height, l, border=0)
         pdf.cell(col_width, row_height, r, ln=1, border=0)
 
-    # --- Footer at bottom ---
-    pdf.ln(6)
-    pdf.set_y(-20)
+    # --- Footer ---
+    pdf.set_y(-18)
     pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "I", 9)
     pdf.multi_cell(0, 5, "Developed by Rasipuram Range", align="C")
 
-    # --- Return as bytes ---
+    # --- Return PDF bytes ---
     result = pdf.output(dest="S")
     if isinstance(result, bytearray):
         result = bytes(result)
@@ -299,4 +305,5 @@ if st.session_state["generated"]:
                                    file_name="grid_report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI, set labels, then press ▶ Generate Grid.")
+
 
