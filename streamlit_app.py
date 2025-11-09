@@ -176,51 +176,57 @@ def build_pdf_report_standard(
     # ================= HEADER =================
     def header_section():
         if os.path.exists(EMBLEM_PATH):
-            pdf.image(EMBLEM_PATH, x=95, y=6, w=20)
+            pdf.image(EMBLEM_PATH, x=93, y=8, w=25)
+        pdf.set_y(35)
         pdf.set_font("Helvetica", "B", 16)
-        pdf.cell(0, 30, "FOREST DEPARTMENT", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 10, "FOREST DEPARTMENT", align="C", ln=1)
 
     # ================= FOOTER =================
     def footer_section():
         pdf.set_y(-15)
         pdf.set_font("Helvetica", "I", 8)
-        pdf.cell(0, 10,
-                 f"Developed by Rasipuram Range    |    Page {pdf.page_no()}",
-                 0, 0, "C")
+        pdf.cell(0, 10, f"Developed by Rasipuram Range    |    Page {pdf.page_no()}", 0, 0, "C")
 
-    # ================= PAGE 1 (MAP PAGE) =================
+    # ================= PAGE 1 (MAP + LEGEND) =================
     pdf.add_page()
     header_section()
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.cell(0, 8, title_text, align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(0, 10, title_text, align="C", ln=1)
 
     tmp_dir = tempfile.gettempdir()
     map_img_path = os.path.join(tmp_dir, "composite_map.png")
 
-    fig, ax = plt.subplots(figsize=(6.5, 5))
+    # ---- Plot Grid + AOI + Overlay ----
+    fig, ax = plt.subplots(figsize=(6.8, 5))
     ax.set_facecolor("white")
 
     merged_gdf = gpd.GeoSeries([merged_ll], crs="EPSG:4326").to_crs(3857)
     grid_gdf = gpd.GeoSeries(cells_ll, crs="EPSG:4326").to_crs(3857)
-    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3)
-    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1)
+    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3, label="AOI")
+    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1, label="Grid")
 
     if overlay_gdf is not None and not overlay_gdf.empty:
         overlay_gdf = overlay_gdf.to_crs(3857)
-        overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3)
+        overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3, label="Overlay")
 
-    ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery)
+    ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery, zoom=15)
     ax.axis("off")
-    plt.tight_layout()
-    fig.savefig(map_img_path, dpi=200, bbox_inches="tight")
+    plt.tight_layout(pad=0.1)
+    fig.savefig(map_img_path, dpi=250, bbox_inches="tight")
     plt.close(fig)
 
-    if os.path.exists(map_img_path):
-        pdf.image(map_img_path, x=15, y=50, w=180)
-    pdf.set_y(140)
+    # ---- Insert Map Image ----
+    pdf.image(map_img_path, x=15, y=55, w=180)
+    pdf.set_y(145)
 
-    # ================= LEGEND =================
+    # ---- Legend Box ----
+    pdf.set_fill_color(245, 245, 240)  # light beige
+    pdf.set_draw_color(180, 180, 180)
+    pdf.rect(15, pdf.get_y(), 180, 30, style="FD")
+
     pdf.set_font("Helvetica", "", 11)
+    y_start = pdf.get_y() + 8
     col1 = [
         f"Range: {user_inputs.get('range_name','')}",
         f"RF: {user_inputs.get('rf_name','')}",
@@ -231,31 +237,31 @@ def build_pdf_report_standard(
         f"Density: {density}",
         f"Area of Invasive: {area_invasive} Ha",
         f"Cell Size: {cell_size} m",
-        f"Overlay Included: {'Yes' if (overlay_gdf is not None and not overlay_gdf.empty) else 'No'}",
+        f"Overlay: {'Yes' if overlay_gdf is not None and not overlay_gdf.empty else 'No'}",
     ]
-    y = pdf.get_y() + 8
+
     for i in range(4):
-        pdf.text(25, y + i * 6, col1[i])
-        pdf.text(110, y + i * 6, col2[i])
-    pdf.ln(35)
+        pdf.text(25, y_start + i * 6, col1[i])
+        pdf.text(115, y_start + i * 6, col2[i])
+
     footer_section()
 
-    # ================= PAGE 2+ (GRID DETAILS) =================
+    # ================= PAGE 2 (TABLE) =================
     pdf.add_page()
     header_section()
-
+    pdf.ln(2)
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 10, "Invasive Grid Area Details (within Overlay)",
-              align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, "Invasive Grid Area Details (within Overlay)", ln=1, align="C")
 
     pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(15, 8, "S.No", 1, align="C")
-    pdf.cell(35, 8, "Grid ID", 1, align="C")
-    pdf.cell(70, 8, "Centroid Lat", 1, align="C")
-    pdf.cell(70, 8, "Centroid Lon", 1, align="C")
+    pdf.cell(20, 8, "S.No", 1, align="C")
+    pdf.cell(40, 8, "Grid ID", 1, align="C")
+    pdf.cell(65, 8, "Centroid Lat", 1, align="C")
+    pdf.cell(65, 8, "Centroid Lon", 1, align="C")
     pdf.ln(8)
     pdf.set_font("Helvetica", "", 10)
 
+    # ---- Overlay Intersection ----
     overlay_union = None
     if overlay_gdf is not None and not overlay_gdf.empty:
         og = overlay_gdf
@@ -267,27 +273,32 @@ def build_pdf_report_standard(
         for idx, geom in enumerate(cells_ll, start=1):
             if overlay_union.intersects(geom):
                 lat, lon = geom.centroid.y, geom.centroid.x
-                pdf.cell(15, 7, str(row_no), 1)
-                pdf.cell(35, 7, f"G{idx}", 1)
-                pdf.cell(70, 7, f"{lat:.6f}", 1, align="R")
-                pdf.cell(70, 7, f"{lon:.6f}", 1, align="R")
+                pdf.cell(20, 7, str(row_no), 1)
+                pdf.cell(40, 7, f"G{idx}", 1)
+                pdf.cell(65, 7, f"{lat:.6f}", 1, align="R")
+                pdf.cell(65, 7, f"{lon:.6f}", 1, align="R")
                 pdf.ln(7)
-                if pdf.get_y() > 270:
+                row_no += 1
+
+                if pdf.get_y() > 265:  # auto new page when table too long
                     footer_section()
                     pdf.add_page()
                     header_section()
+                    pdf.ln(2)
                     pdf.set_font("Helvetica", "B", 11)
-                    pdf.cell(15, 8, "S.No", 1, align="C")
-                    pdf.cell(35, 8, "Grid ID", 1, align="C")
-                    pdf.cell(70, 8, "Centroid Lat", 1, align="C")
-                    pdf.cell(70, 8, "Centroid Lon", 1, align="C")
+                    pdf.cell(20, 8, "S.No", 1, align="C")
+                    pdf.cell(40, 8, "Grid ID", 1, align="C")
+                    pdf.cell(65, 8, "Centroid Lat", 1, align="C")
+                    pdf.cell(65, 8, "Centroid Lon", 1, align="C")
                     pdf.ln(8)
                     pdf.set_font("Helvetica", "", 10)
-                row_no += 1
+
+    if row_no == 1:
+        pdf.cell(0, 8, "No grid falls within overlay area.", 1, align="C")
 
     footer_section()
 
-    # ================= RETURN SAFE BYTES =================
+    # ---- Return PDF bytes safely ----
     result = pdf.output(dest="S")
     if isinstance(result, bytearray):
         result = bytes(result)
@@ -404,6 +415,7 @@ if st.session_state["generated"]:
                                    mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
 
 
