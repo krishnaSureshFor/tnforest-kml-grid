@@ -265,13 +265,21 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
     )
 
     # ✅ Return PDF bytes correctly (handles both fpdf2 return types)
+        # ✅ Return PDF bytes correctly (handles all fpdf2 versions)
     result = pdf.output(dest="S")
+
+    # fpdf2 can return either bytes, BytesIO, or str depending on version.
     if isinstance(result, (bytes, bytearray)):
         return result
-    elif hasattr(result, "getvalue"):  # for BytesIO
+    elif hasattr(result, "getvalue"):  # BytesIO-like
         return result.getvalue()
+    elif isinstance(result, str):  # Convert string safely to bytes
+        try:
+            return result.encode("latin1")  # common fallback
+        except Exception:
+            return result.encode("utf-8", errors="replace")
     else:
-        return result.encode("latin1")  # fallback for str
+        raise TypeError(f"Unexpected PDF output type: {type(result)}")
 
 
 
@@ -429,6 +437,7 @@ if st.session_state["generated"]:
 
 else:
     st.info("👆 Upload AOI or Overlay files, click **➕ Add Input Labels** (optional), then press **▶ Generate Grid**.")
+
 
 
 
