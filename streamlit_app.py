@@ -266,7 +266,13 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
 
     # ✅ Return PDF bytes correctly (handles both fpdf2 return types)
     result = pdf.output(dest="S")
-    return result if isinstance(result, (bytes, bytearray)) else result.getvalue()
+    if isinstance(result, (bytes, bytearray)):
+        return result
+    elif hasattr(result, "getvalue"):  # for BytesIO
+        return result.getvalue()
+    else:
+        return result.encode("latin1")  # fallback for str
+
 
 
 # --------------------------- Sidebar UI ---------------------------
@@ -423,6 +429,7 @@ if st.session_state["generated"]:
 
 else:
     st.info("👆 Upload AOI or Overlay files, click **➕ Add Input Labels** (optional), then press **▶ Generate Grid**.")
+
 
 
 
