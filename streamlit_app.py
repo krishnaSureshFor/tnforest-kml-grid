@@ -13,7 +13,9 @@ from fpdf import FPDF
 from datetime import datetime
 import os
 
-# Set Streamlit page config
+# -------------------------------------------------------------
+# 🌍 APP CONFIG
+# -------------------------------------------------------------
 st.set_page_config(page_title="KML to Grid Generator v2.0", layout="wide")
 st.title("🗺️ KML to Grid Generator v2.0")
 
@@ -31,13 +33,13 @@ def init_state():
 
 init_state()
 
-# ---------------------- CRS helper (choose UTM) -------------------
+# ---------------------- CRS helper -------------------
 def utm_crs_for_lonlat(lon, lat):
     zone = int((lon + 180) / 6) + 1
     epsg = 32600 + zone if lat >= 0 else 32700 + zone
     return CRS.from_epsg(epsg)
 
-# --------------- Grid generator (clipped inside AOI) --------------
+# --------------- Grid generator (clipped AOI) --------------
 def make_grid_exact_clipped(polygons_ll, cell_size_m=100):
     merged_ll = unary_union(polygons_ll)
     centroid = merged_ll.centroid
@@ -85,6 +87,30 @@ def _write_polygon_coords(ns, parent_polygon_elem, geom):
             poly_elem = etree.SubElement(parent_polygon_elem.getparent(), f"{{{ns}}}Polygon")
             write_one(part)
 
+# -------------------- Grid Only KML generator --------------------
+def generate_grid_only_kml(cells_ll, merged_ll):
+    ns = "http://www.opengis.net/kml/2.2"
+    kml = etree.Element(f"{{{ns}}}kml")
+    doc = etree.SubElement(kml, f"{{{ns}}}Document")
+    etree.SubElement(doc, f"{{{ns}}}name").text = "Grid Only"
+    etree.SubElement(doc, f"{{{ns}}}description").text = "Developed by Rasipuram Range"
+
+    style_grid = etree.SubElement(doc, f"{{{ns}}}Style", id="gridStyle")
+    ls1 = etree.SubElement(style_grid, f"{{{ns}}}LineStyle")
+    etree.SubElement(ls1, f"{{{ns}}}color").text = "ff0000ff"  # red
+    etree.SubElement(ls1, f"{{{ns}}}width").text = "1"
+    ps1 = etree.SubElement(style_grid, f"{{{ns}}}PolyStyle")
+    etree.SubElement(ps1, f"{{{ns}}}fill").text = "0"
+
+    for i, cell in enumerate(cells_ll, start=1):
+        pm = etree.SubElement(doc, f"{{{ns}}}Placemark")
+        etree.SubElement(pm, f"{{{ns}}}name").text = str(i)
+        etree.SubElement(pm, f"{{{ns}}}styleUrl").text = "#gridStyle"
+        poly_elem = etree.SubElement(pm, f"{{{ns}}}Polygon")
+        _write_polygon_coords(ns, poly_elem, cell)
+
+    return etree.tostring(kml, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode("utf-8")
+
 # ----------------- Labeled + merged KML generator -----------------
 def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
     ns = "http://www.opengis.net/kml/2.2"
@@ -121,7 +147,7 @@ def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
           <tr><td>Range</td><td>{user_inputs.get('range_name','')}</td></tr>
           <tr><td>RF</td><td>{user_inputs.get('rf_name','')}</td></tr>
           <tr><td>Beat</td><td>{user_inputs.get('beat_name','')}</td></tr>
-          <tr><td>Year of Work</td><td>{user_inputs.get('year_of_work','')}</td></tr>
+          <tr><td>Year</td><td>{user_inputs.get('year_of_work','')}</td></tr>
           <tr><td>Area</td><td>{area_ha:.2f} ha</td></tr>
         </table>
         """.strip()
@@ -144,7 +170,7 @@ def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
 
     return etree.tostring(kml, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode("utf-8")
 
-# -------------------- PDF helpers --------------------
+# -------------------- PDF builder --------------------
 def _accurate_area_ha_utm(geom_ll, utm_crs):
     area_m2 = gpd.GeoSeries([geom_ll], crs=4326).to_crs(utm_crs).area.iloc[0]
     return float(area_m2) / 10000.0
@@ -177,8 +203,8 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
     pdf.set_font("DejaVu", "B", 12)
     pdf.cell(0, 7, "Summary", ln=1)
     pdf.set_font("DejaVu", "", 11)
-    pdf.cell(0, 6, f"Total Cells: {len(rows)}  |  Total Area: {total_area:.2f} ha", ln=1)
-    pdf.cell(0, 6, f"Cell Size: {cell_size} m  |  Overlay: {'Yes' if overlay_present else 'No'}", ln=1)
+    pdf.cell(0, 6, f"Total Cells: {len(rows)} | Total Area: {total_area:.2f} ha", ln=1)
+    pdf.cell(0, 6, f"Cell Size: {cell_size} m | Overlay: {'Yes' if overlay_present else 'No'}", ln=1)
     pdf.cell(0, 6, f"Projection: WGS84 / {utm.to_string()}", ln=1)
     pdf.cell(0, 6, f"Generated on: {datetime.now().strftime('%d-%b-%Y %H:%M')}", ln=1)
     pdf.ln(3)
@@ -213,7 +239,9 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
     else:
         raise TypeError(f"Unexpected PDF output type: {type(result)}")
 
-# --------------------------- Sidebar UI ---------------------------
+# -------------------------------------------------------------
+# 🧭 SIDEBAR + MAIN APP
+# -------------------------------------------------------------
 st.sidebar.header("⚙️ Options")
 
 uploaded_aoi = st.sidebar.file_uploader("Upload AOI KML/KMZ", type=["kml", "kmz"])
@@ -250,7 +278,7 @@ if reset_click:
 if generate_click:
     st.session_state["generated"] = True
 
-# ---------------------------- Main Area ---------------------------
+# ---------------------------- MAIN DISPLAY ---------------------------
 if st.session_state["generated"]:
     m = folium.Map(location=[11.0, 78.5], zoom_start=8)
     bounds = None
@@ -258,7 +286,7 @@ if st.session_state["generated"]:
     cells_ll = []
     merged_ll = None
 
-    if uploaded_aoi is not None:
+    if uploaded_aoi:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".kml") as tmp:
             tmp.write(uploaded_aoi.read())
             tmp_path = tmp.name
@@ -272,7 +300,7 @@ if st.session_state["generated"]:
         minx, miny, maxx, maxy = aoi_union.bounds
         bounds = [[miny, minx], [maxy, maxx]]
 
-    if overlay_file is not None:
+    if overlay_file:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".kml") as tmp2:
             tmp2.write(overlay_file.read())
             tmp2_path = tmp2.name
