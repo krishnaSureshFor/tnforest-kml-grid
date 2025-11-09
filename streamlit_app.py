@@ -192,6 +192,7 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
     """Create a standard A4 PDF with header, summary and a table of cells."""
     import os
     from datetime import datetime
+    from fpdf import FPDF
 
     # ✅ Initialize PDF with Unicode font
     pdf = FPDF("P", "mm", "A4")
@@ -419,3 +420,4 @@ if st.session_state["generated"]:
 else:
 
     st.info("👆 Upload AOI or Overlay files, click **➕ Add Input Labels** (optional), then press **▶ Generate Grid**.")
+
