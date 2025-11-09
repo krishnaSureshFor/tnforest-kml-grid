@@ -168,6 +168,7 @@ def build_pdf_report_standard(
     cells_ll, merged_ll, user_inputs, cell_size,
     overlay_gdf, title_text, density, area_invasive
 ):
+    from shapely.geometry import Polygon, MultiPolygon
     pdf = FPDF("P", "mm", "A4")
     pdf.set_auto_page_break(auto=True, margin=15)
     EMBLEM_PATH = os.path.join(os.path.dirname(__file__), "tn_emblem.png")
@@ -199,18 +200,21 @@ def build_pdf_report_standard(
     pdf.set_font("Helvetica", "B", 13)
     pdf.cell(0, 10, title_text, align="C", ln=1)
 
+    # ---- Generate Map ----
     tmp_dir = tempfile.gettempdir()
     map_img_path = os.path.join(tmp_dir, "map_overlay.png")
 
-    # ---- Generate Map ----
     fig, ax = plt.subplots(figsize=(6.8, 5))
     ax.set_facecolor("white")
 
     merged_gdf = gpd.GeoSeries([merged_ll], crs="EPSG:4326").to_crs(3857)
     grid_gdf = gpd.GeoSeries(cells_ll, crs="EPSG:4326").to_crs(3857)
-    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3, label="AOI")
-    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1, label="Grid")
 
+    # AOI (red 3px)
+    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3, label="AOI")
+    # Grid (red 1px)
+    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1, label="Grid")
+    # Overlay (golden yellow 3px)
     if overlay_gdf is not None and not overlay_gdf.empty:
         overlay_gdf = overlay_gdf.to_crs(3857)
         overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3, label="Overlay")
@@ -272,49 +276,50 @@ def build_pdf_report_standard(
     pdf.set_font("Helvetica", "", 10)
 
     # ---- Extract Overlay Corners ----
-    # ---- Extract Overlay Corners ----
-row_no = 1
-if overlay_gdf is not None and not overlay_gdf.empty:
-    overlay = overlay_gdf.to_crs(4326)
-    for geom in overlay.geometry:
-        if geom.is_empty:
-            continue
-        if geom.geom_type == "Polygon":
-            coords = list(geom.exterior.coords)
-        elif geom.geom_type == "MultiPolygon":
-            coords = []
-            for part in geom.geoms:
-                coords.extend(list(part.exterior.coords))
-        else:
-            continue
+    row_no = 1
+    if overlay_gdf is not None and not overlay_gdf.empty:
+        overlay = overlay_gdf.to_crs(4326)
+        for geom in overlay.geometry:
+            if geom.is_empty:
+                continue
+            if geom.geom_type == "Polygon":
+                coords = list(geom.exterior.coords)
+            elif geom.geom_type == "MultiPolygon":
+                coords = []
+                for part in geom.geoms:
+                    coords.extend(list(part.exterior.coords))
+            else:
+                continue
 
-        for coord in coords:
-            if len(coord) >= 2:
-                lon, lat = coord[:2]
-                pdf.cell(25, 7, str(row_no), 1)
-                pdf.cell(75, 7, f"{lat:.6f}", 1, align="R")
-                pdf.cell(75, 7, f"{lon:.6f}", 1, align="R")
-                pdf.ln(7)
-                row_no += 1
+            for coord in coords:
+                if len(coord) >= 2:
+                    lon, lat = coord[:2]
+                    pdf.cell(25, 7, str(row_no), 1)
+                    pdf.cell(75, 7, f"{lat:.6f}", 1, align="R")
+                    pdf.cell(75, 7, f"{lon:.6f}", 1, align="R")
+                    pdf.ln(7)
+                    row_no += 1
 
-                if pdf.get_y() > 265:  # new page if table overflows
-                    footer_section()
-                    pdf.add_page()
-                    header_section()
-                    pdf.ln(2)
-                    pdf.set_font("Helvetica", "B", 11)
-                    pdf.cell(25, 8, "S.No", 1, align="C")
-                    pdf.cell(75, 8, "Latitude", 1, align="C")
-                    pdf.cell(75, 8, "Longitude", 1, align="C")
-                    pdf.ln(8)
-                    pdf.set_font("Helvetica", "", 10)
+                    if pdf.get_y() > 265:  # new page if table overflows
+                        footer_section()
+                        pdf.add_page()
+                        header_section()
+                        pdf.ln(2)
+                        pdf.set_font("Helvetica", "B", 11)
+                        pdf.cell(25, 8, "S.No", 1, align="C")
+                        pdf.cell(75, 8, "Latitude", 1, align="C")
+                        pdf.cell(75, 8, "Longitude", 1, align="C")
+                        pdf.ln(8)
+                        pdf.set_font("Helvetica", "", 10)
 
     else:
         pdf.cell(0, 8, "No overlay polygons detected.", 1, align="C")
 
     footer_section()
 
-    # ---- Finalize ----
+    # ----------------------------------------------------------------------
+    # ✅ Return bytes safely
+    # ----------------------------------------------------------------------
     result = pdf.output(dest="S")
     if isinstance(result, bytearray):
         result = bytes(result)
@@ -431,6 +436,7 @@ if st.session_state["generated"]:
                                    mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
 
 
