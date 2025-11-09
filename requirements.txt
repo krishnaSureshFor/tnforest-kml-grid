@@ -1,5 +1,4 @@
 # Remove legacy fpdf if preinstalled, ensure only fpdf2 is used
-!pip uninstall -y fpdf || true
 fpdf2==2.7.9
 altair==5.5.0
 attrs==25.4.0
@@ -52,4 +51,5 @@ tzdata==2025.2
 urllib3==2.5.0
 watchdog==6.0.0
 xyzservices==2025.10.0
+
 
