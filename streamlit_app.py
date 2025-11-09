@@ -235,8 +235,16 @@ def build_pdf_report_standard(
     pdf.set_font("Helvetica", "I", 8)
     pdf.cell(0, 10, f"Page {pdf.page_no()} / 2", 0, 0, "C")
 
-    result = pdf.output(dest="S").encode("latin1", errors="ignore")
+    result = pdf.output(dest="S")
+
+# Handle both str and bytearray safely
+    if isinstance(result, str):
+        result = result.encode("latin1", errors="ignore")
+    elif isinstance(result, bytearray):
+        result = bytes(result)
+
     return result
+
 # ================================================================
 # 🧰 STREAMLIT SIDEBAR
 # ================================================================
@@ -330,6 +338,7 @@ if st.session_state["generated"]:
                     pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
 
 
