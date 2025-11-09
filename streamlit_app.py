@@ -214,7 +214,8 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
         total_area += area_ha
 
     # Header section
-    pdf.cell(0, 8, "KML GRID GENERATOR v3.0 — FIELD REPORT", ln=1, align="C")
+    pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "B", 14)
+    pdf.cell(0, 8, "KML GRID GENERATOR v3.0 - FIELD REPORT", ln=1, align="C")
     pdf.ln(3)
     pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "", 11)
     pdf.cell(0, 6, f"Range: {user_inputs.get('range_name','')} | RF: {user_inputs.get('rf_name','')}", ln=1)
@@ -363,4 +364,5 @@ if st.session_state["generated"]:
         st.info("✅ Overlay loaded successfully (no grid generated — AOI not provided).")
 else:
     st.info("👆 Upload AOI or Overlay files, click **➕ Add Input Labels**, then press **▶ Generate Grid**.")
+
 
