@@ -272,22 +272,25 @@ def build_pdf_report_standard(
     pdf.set_font("Helvetica", "", 10)
 
     # ---- Extract Overlay Corners ----
-    row_no = 1
-    if overlay_gdf is not None and not overlay_gdf.empty:
-        overlay = overlay_gdf.to_crs(4326)
-        for geom in overlay.geometry:
-            if geom.is_empty:
-                continue
-            if geom.geom_type == "Polygon":
-                coords = list(geom.exterior.coords)
-            elif geom.geom_type == "MultiPolygon":
-                coords = []
-                for part in geom.geoms:
-                    coords.extend(list(part.exterior.coords))
-            else:
-                continue
+    # ---- Extract Overlay Corners ----
+row_no = 1
+if overlay_gdf is not None and not overlay_gdf.empty:
+    overlay = overlay_gdf.to_crs(4326)
+    for geom in overlay.geometry:
+        if geom.is_empty:
+            continue
+        if geom.geom_type == "Polygon":
+            coords = list(geom.exterior.coords)
+        elif geom.geom_type == "MultiPolygon":
+            coords = []
+            for part in geom.geoms:
+                coords.extend(list(part.exterior.coords))
+        else:
+            continue
 
-            for (lon, lat) in coords:
+        for coord in coords:
+            if len(coord) >= 2:
+                lon, lat = coord[:2]
                 pdf.cell(25, 7, str(row_no), 1)
                 pdf.cell(75, 7, f"{lat:.6f}", 1, align="R")
                 pdf.cell(75, 7, f"{lon:.6f}", 1, align="R")
@@ -428,6 +431,7 @@ if st.session_state["generated"]:
                                    mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
 
 
