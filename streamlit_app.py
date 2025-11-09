@@ -14,6 +14,7 @@ import tempfile
 from fpdf import FPDF
 from datetime import datetime
 import os
+os.system("pip uninstall -y fpdf >/dev/null 2>&1")
 
 st.set_page_config(page_title="KML to Grid Generator v2.0", layout="wide")
 st.title("🗺️ KML to Grid Generator v2.0")
@@ -418,5 +419,6 @@ if st.session_state["generated"]:
 
 else:
     st.info("👆 Upload AOI or Overlay files, click **➕ Add Input Labels** (optional), then press **▶ Generate Grid**.")
+
 
 
