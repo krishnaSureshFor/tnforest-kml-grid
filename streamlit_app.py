@@ -11,7 +11,7 @@ import folium
 import tempfile
 
 # === PDF (use fpdf2, NOT legacy fpdf) ===
-ffrom fpdf import FPDF
+from fpdf import FPDF
 from datetime import datetime
 import os
 
@@ -418,4 +418,5 @@ if st.session_state["generated"]:
 
 else:
     st.info("👆 Upload AOI or Overlay files, click **➕ Add Input Labels** (optional), then press **▶ Generate Grid**.")
+
 
