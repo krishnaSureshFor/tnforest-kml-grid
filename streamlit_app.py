@@ -9,6 +9,10 @@ from streamlit_folium import st_folium
 import folium
 from fpdf import FPDF
 from datetime import datetime
+import matplotlib.pyplot as plt
+import contextily as ctx
+import tempfile
+from shapely.geometry import Polygon, MultiPolygon
 
 # ================================================================
 # BASIC SETUP
@@ -164,16 +168,13 @@ def build_pdf_report_standard(
     cells_ll, merged_ll, user_inputs, cell_size,
     overlay_gdf, title_text, density, area_invasive
 ):
-    import matplotlib.pyplot as plt
-    import contextily as ctx
-    import tempfile
-    import geopandas as gpd
-
     pdf = FPDF("P", "mm", "A4")
     pdf.set_auto_page_break(auto=True, margin=15)
     EMBLEM_PATH = os.path.join(os.path.dirname(__file__), "tn_emblem.png")
 
-    # ================= HEADER =================
+    # ----------------------------------------------------------------------
+    # 🟢 Header
+    # ----------------------------------------------------------------------
     def header_section():
         if os.path.exists(EMBLEM_PATH):
             pdf.image(EMBLEM_PATH, x=93, y=8, w=25)
@@ -181,13 +182,17 @@ def build_pdf_report_standard(
         pdf.set_font("Helvetica", "B", 16)
         pdf.cell(0, 10, "FOREST DEPARTMENT", align="C", ln=1)
 
-    # ================= FOOTER =================
+    # ----------------------------------------------------------------------
+    # 🔵 Footer
+    # ----------------------------------------------------------------------
     def footer_section():
         pdf.set_y(-15)
         pdf.set_font("Helvetica", "I", 8)
         pdf.cell(0, 10, f"Developed by Rasipuram Range    |    Page {pdf.page_no()}", 0, 0, "C")
 
-    # ================= PAGE 1 (MAP + LEGEND) =================
+    # ----------------------------------------------------------------------
+    # 🗺️ PAGE 1 — Map + Legend
+    # ----------------------------------------------------------------------
     pdf.add_page()
     header_section()
     pdf.ln(2)
@@ -195,9 +200,9 @@ def build_pdf_report_standard(
     pdf.cell(0, 10, title_text, align="C", ln=1)
 
     tmp_dir = tempfile.gettempdir()
-    map_img_path = os.path.join(tmp_dir, "composite_map.png")
+    map_img_path = os.path.join(tmp_dir, "map_overlay.png")
 
-    # ---- Plot Grid + AOI + Overlay ----
+    # ---- Generate Map ----
     fig, ax = plt.subplots(figsize=(6.8, 5))
     ax.set_facecolor("white")
 
@@ -210,23 +215,27 @@ def build_pdf_report_standard(
         overlay_gdf = overlay_gdf.to_crs(3857)
         overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3, label="Overlay")
 
-    ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery, zoom=15)
+    ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery, zoom=14)
     ax.axis("off")
     plt.tight_layout(pad=0.1)
     fig.savefig(map_img_path, dpi=250, bbox_inches="tight")
     plt.close(fig)
 
-    # ---- Insert Map Image ----
+    # ---- Insert Map ----
     pdf.image(map_img_path, x=15, y=55, w=180)
-    pdf.set_y(145)
+    pdf.set_y(150)  # move below map
+    pdf.set_draw_color(150, 150, 150)
+    pdf.line(15, pdf.get_y(), 195, pdf.get_y())  # separator line
+    pdf.ln(5)
 
     # ---- Legend Box ----
-    pdf.set_fill_color(245, 245, 240)  # light beige
+    pdf.set_fill_color(245, 245, 240)
     pdf.set_draw_color(180, 180, 180)
-    pdf.rect(15, pdf.get_y(), 180, 30, style="FD")
+    legend_y = pdf.get_y()
+    pdf.rect(15, legend_y, 180, 38, style="FD")
 
     pdf.set_font("Helvetica", "", 11)
-    y_start = pdf.get_y() + 8
+    y_start = legend_y + 9
     col1 = [
         f"Range: {user_inputs.get('range_name','')}",
         f"RF: {user_inputs.get('rf_name','')}",
@@ -246,59 +255,63 @@ def build_pdf_report_standard(
 
     footer_section()
 
-    # ================= PAGE 2 (TABLE) =================
+    # ----------------------------------------------------------------------
+    # 📍 PAGE 2 — Corner GPS Table
+    # ----------------------------------------------------------------------
     pdf.add_page()
     header_section()
     pdf.ln(2)
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 10, "Invasive Grid Area Details (within Overlay)", ln=1, align="C")
+    pdf.cell(0, 10, "Corner GPS of Overlay Area", ln=1, align="C")
 
     pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(20, 8, "S.No", 1, align="C")
-    pdf.cell(40, 8, "Grid ID", 1, align="C")
-    pdf.cell(65, 8, "Centroid Lat", 1, align="C")
-    pdf.cell(65, 8, "Centroid Lon", 1, align="C")
+    pdf.cell(25, 8, "S.No", 1, align="C")
+    pdf.cell(75, 8, "Latitude", 1, align="C")
+    pdf.cell(75, 8, "Longitude", 1, align="C")
     pdf.ln(8)
     pdf.set_font("Helvetica", "", 10)
 
-    # ---- Overlay Intersection ----
-    overlay_union = None
-    if overlay_gdf is not None and not overlay_gdf.empty:
-        og = overlay_gdf
-        og = og.set_crs(4326, allow_override=True)
-        overlay_union = og.unary_union
-
+    # ---- Extract Overlay Corners ----
     row_no = 1
-    if overlay_union is not None:
-        for idx, geom in enumerate(cells_ll, start=1):
-            if overlay_union.intersects(geom):
-                lat, lon = geom.centroid.y, geom.centroid.x
-                pdf.cell(20, 7, str(row_no), 1)
-                pdf.cell(40, 7, f"G{idx}", 1)
-                pdf.cell(65, 7, f"{lat:.6f}", 1, align="R")
-                pdf.cell(65, 7, f"{lon:.6f}", 1, align="R")
+    if overlay_gdf is not None and not overlay_gdf.empty:
+        overlay = overlay_gdf.to_crs(4326)
+        for geom in overlay.geometry:
+            if geom.is_empty:
+                continue
+            if geom.geom_type == "Polygon":
+                coords = list(geom.exterior.coords)
+            elif geom.geom_type == "MultiPolygon":
+                coords = []
+                for part in geom.geoms:
+                    coords.extend(list(part.exterior.coords))
+            else:
+                continue
+
+            for (lon, lat) in coords:
+                pdf.cell(25, 7, str(row_no), 1)
+                pdf.cell(75, 7, f"{lat:.6f}", 1, align="R")
+                pdf.cell(75, 7, f"{lon:.6f}", 1, align="R")
                 pdf.ln(7)
                 row_no += 1
 
-                if pdf.get_y() > 265:  # auto new page when table too long
+                if pdf.get_y() > 265:  # new page if table overflows
                     footer_section()
                     pdf.add_page()
                     header_section()
                     pdf.ln(2)
                     pdf.set_font("Helvetica", "B", 11)
-                    pdf.cell(20, 8, "S.No", 1, align="C")
-                    pdf.cell(40, 8, "Grid ID", 1, align="C")
-                    pdf.cell(65, 8, "Centroid Lat", 1, align="C")
-                    pdf.cell(65, 8, "Centroid Lon", 1, align="C")
+                    pdf.cell(25, 8, "S.No", 1, align="C")
+                    pdf.cell(75, 8, "Latitude", 1, align="C")
+                    pdf.cell(75, 8, "Longitude", 1, align="C")
                     pdf.ln(8)
                     pdf.set_font("Helvetica", "", 10)
 
-    if row_no == 1:
-        pdf.cell(0, 8, "No grid falls within overlay area.", 1, align="C")
+    else:
+        pdf.cell(0, 8, "No overlay polygons detected.", 1, align="C")
 
     footer_section()
 
-    # ---- Return PDF bytes safely ----
+    # ---- Finalize ----
     result = pdf.output(dest="S")
     if isinstance(result, bytearray):
         result = bytes(result)
@@ -415,6 +428,7 @@ if st.session_state["generated"]:
                                    mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
 
 
