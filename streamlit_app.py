@@ -192,12 +192,14 @@ def build_pdf_report_standard(
         idx = 1
         for geom in overlay_present.geometry:
             if geom.geom_type == "Polygon":
-                for (x, y) in geom.exterior.coords:
-                    pdf.cell(20, 7, str(idx), 1)
-                    pdf.cell(60, 7, f"{y:.6f}", 1)
-                    pdf.cell(60, 7, f"{x:.6f}", 1)
-                    pdf.ln(7)
-                    idx += 1
+                for coord in geom.exterior.coords:
+                    if len(coord) >= 2:
+                        x, y = coord[0], coord[1]
+                        pdf.cell(20, 7, str(idx), 1)
+                        pdf.cell(60, 7, f"{y:.6f}", 1)
+                        pdf.cell(60, 7, f"{x:.6f}", 1)
+                        pdf.ln(7)
+                        idx += 1
 
     pdf.ln(5)
     pdf.set_font("Helvetica", "B", 12)
@@ -328,5 +330,6 @@ if st.session_state["generated"]:
                     pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
 
