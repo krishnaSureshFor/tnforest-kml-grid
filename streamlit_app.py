@@ -187,9 +187,17 @@ def build_pdf_report_standard(
     # 🔵 Footer
     # ----------------------------------------------------------------------
     def footer_section():
-        pdf.set_y(-15)
-        pdf.set_font("Helvetica", "I", 8)
-        pdf.cell(0, 10, f"Developed by Rasipuram Range    |    Page {pdf.page_no()}", 0, 0, "C")
+        # 📝 Add note text just below legend
+        pdf.set_y(legend_y + 46)  # right below the legend box
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.set_text_color(80, 80, 80)
+        pdf.multi_cell(
+            0, 5,
+            "Note: Satellite background and boundaries are automatically generated. "
+            "Developed by Rasipuram Range."
+        )
+        pdf.set_text_color(0, 0, 0)
+
 
     # ----------------------------------------------------------------------
     # 🗺️ PAGE 1 — Map + Legend
@@ -229,7 +237,7 @@ def build_pdf_report_standard(
     pdf.image(map_img_path, x=15, y=55, w=180)
 
     # Move legend far below map (↓ this fixes overlap)
-    pdf.set_y(170)  
+    pdf.set_y(175)  
     pdf.set_draw_color(150, 150, 150)
     pdf.line(15, pdf.get_y(), 195, pdf.get_y())  # separator line
     pdf.ln(6)
@@ -438,6 +446,7 @@ if st.session_state["generated"]:
                                    mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
 
 
