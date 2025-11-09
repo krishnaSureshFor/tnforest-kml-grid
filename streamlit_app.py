@@ -194,7 +194,7 @@ def build_pdf_report_standard(cells_ll, merged_ll, overlay_gdf, user_inputs,
     # --- Footer ---
     pdf.set_y(-18)
     pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "I", 9)
-    pdf.multi_cell(0, 5, "Developed by Rasipuram Range", align="C")
+    pdf.multi_cell(0, 5, "Created with Web UI Developed by Rasipuram Range", align="C")
 
     # --- Return PDF bytes ---
     result = pdf.output(dest="S")
@@ -305,5 +305,6 @@ if st.session_state["generated"]:
                                    file_name="grid_report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI, set labels, then press ▶ Generate Grid.")
+
 
 
