@@ -1,26 +1,28 @@
 import streamlit as st
 import geopandas as gpd
-from shapely.geometry import box, mapping
+from shapely.geometry import box
 from shapely.ops import unary_union
 from pyproj import CRS
 import math
 from lxml import etree
+from shapely.geometry import mapping
 from streamlit_folium import st_folium
 import folium
 import tempfile
-from datetime import datetime
 from fpdf import FPDF
-import os, requests
+from datetime import datetime
+import os
+import requests
 
-# -------------------------------------------------
-# Streamlit UI setup
-# -------------------------------------------------
+# ----------------------------------------------------------------------
+# 🔧 Initial Streamlit setup
+# ----------------------------------------------------------------------
 st.set_page_config(page_title="KML to Grid Generator v3.0", layout="wide")
 st.title("🗺️ KML to Grid Generator v3.0")
 
-# -------------------------------------------------
-# Initialize session state
-# -------------------------------------------------
+# ----------------------------------------------------------------------
+# 🧩 Initialize State
+# ----------------------------------------------------------------------
 def init_state():
     if "user_inputs" not in st.session_state:
         st.session_state["user_inputs"] = {
@@ -34,24 +36,25 @@ def init_state():
 
 init_state()
 
-# -------------------------------------------------
-# CRS helper
-# -------------------------------------------------
+# ----------------------------------------------------------------------
+# 🧭 Helper — Determine UTM zone for given lon/lat
+# ----------------------------------------------------------------------
 def utm_crs_for_lonlat(lon, lat):
     zone = int((lon + 180) / 6) + 1
     epsg = 32600 + zone if lat >= 0 else 32700 + zone
     return CRS.from_epsg(epsg)
 
-# -------------------------------------------------
-# Generate grid clipped to AOI
-# -------------------------------------------------
+# ----------------------------------------------------------------------
+# 🧱 Generate grid inside AOI
+# ----------------------------------------------------------------------
 def make_grid_exact_clipped(polygons_ll, cell_size_m=100):
     merged_ll = unary_union(polygons_ll)
     centroid = merged_ll.centroid
     utm = utm_crs_for_lonlat(centroid.x, centroid.y)
 
-    merged_utm = gpd.GeoSeries([merged_ll], crs=4326).to_crs(utm)
+    merged_utm = gpd.GeoSeries([merged_ll], crs="EPSG:4326").to_crs(utm)
     minx, miny, maxx, maxy = merged_utm.total_bounds
+
     cols = int(math.ceil((maxx - minx) / cell_size_m))
     rows = int(math.ceil((maxy - miny) / cell_size_m))
 
@@ -67,96 +70,90 @@ def make_grid_exact_clipped(polygons_ll, cell_size_m=100):
                 if not inter.is_empty:
                     cells.append(inter)
 
-    cells_ll = [gpd.GeoSeries([c], crs=utm).to_crs(4326).iloc[0] for c in cells]
+    # back to WGS84 for export/preview
+    cells_ll = [gpd.GeoSeries([geom], crs=utm).to_crs(4326).iloc[0] for geom in cells]
     return cells_ll, merged_ll
 
-# -------------------------------------------------
-# KML coordinate writer helpers
-# -------------------------------------------------
+# ----------------------------------------------------------------------
+# ✏️ KML Writing Helpers
+# ----------------------------------------------------------------------
 def _ring_coords_to_kml(ring):
-    coords = [f"{pt[0]},{pt[1]},0" for pt in ring.coords if len(pt) >= 2]
-    return " ".join(coords)
+    coords_list = []
+    for pt in ring.coords:
+        if len(pt) >= 2:
+            coords_list.append(f"{pt[0]},{pt[1]},0")
+    return " ".join(coords_list)
 
-def _write_polygon_coords(ns, polygon_elem, geom):
+def _write_polygon_coords(ns, parent_polygon_elem, geom):
     def write_one(poly):
-        outer = etree.SubElement(polygon_elem, f"{{{ns}}}outerBoundaryIs")
-        lr_out = etree.SubElement(outer, f"{{{ns}}}LinearRing")
-        etree.SubElement(lr_out, f"{{{ns}}}coordinates").text = _ring_coords_to_kml(poly.exterior)
+        outer = etree.SubElement(parent_polygon_elem, "{%s}outerBoundaryIs" % ns)
+        lr_out = etree.SubElement(outer, "{%s}LinearRing" % ns)
+        etree.SubElement(lr_out, "{%s}coordinates" % ns).text = _ring_coords_to_kml(poly.exterior)
         for hole in getattr(poly, "interiors", []):
-            inner = etree.SubElement(polygon_elem, f"{{{ns}}}innerBoundaryIs")
-            lr_in = etree.SubElement(inner, f"{{{ns}}}LinearRing")
-            etree.SubElement(lr_in, f"{{{ns}}}coordinates").text = _ring_coords_to_kml(hole)
+            inner = etree.SubElement(parent_polygon_elem, "{%s}innerBoundaryIs" % ns)
+            lr_in = etree.SubElement(inner, "{%s}LinearRing" % ns)
+            etree.SubElement(lr_in, "{%s}coordinates" % ns).text = _ring_coords_to_kml(hole)
+
     if geom.geom_type == "Polygon":
         write_one(geom)
     elif geom.geom_type == "MultiPolygon":
         for part in geom.geoms:
-            poly_elem = etree.SubElement(polygon_elem.getparent(), f"{{{ns}}}Polygon")
+            poly_elem = etree.SubElement(parent_polygon_elem.getparent(), "{%s}Polygon" % ns)
             write_one(part)
 
-# -------------------------------------------------
-# Generate grid-only KML
-# -------------------------------------------------
-def generate_grid_only_kml(cells_ll, merged_ll):
-    ns = "http://www.opengis.net/kml/2.2"
-    kml = etree.Element(f"{{{ns}}}kml")
-    doc = etree.SubElement(kml, f"{{{ns}}}Document")
-    etree.SubElement(doc, f"{{{ns}}}name").text = "Grid Only"
-    etree.SubElement(doc, f"{{{ns}}}description").text = "Generated by Rasipuram Range"
-
-    style = etree.SubElement(doc, f"{{{ns}}}Style", id="gridStyle")
-    ls = etree.SubElement(style, f"{{{ns}}}LineStyle")
-    etree.SubElement(ls, f"{{{ns}}}color").text = "ff0000ff"
-    etree.SubElement(ls, f"{{{ns}}}width").text = "1"
-    ps = etree.SubElement(style, f"{{{ns}}}PolyStyle")
-    etree.SubElement(ps, f"{{{ns}}}fill").text = "0"
-
-    for i, cell in enumerate(cells_ll, 1):
-        pm = etree.SubElement(doc, f"{{{ns}}}Placemark")
-        etree.SubElement(pm, f"{{{ns}}}name").text = str(i)
-        etree.SubElement(pm, f"{{{ns}}}styleUrl").text = "#gridStyle"
-        poly_elem = etree.SubElement(pm, f"{{{ns}}}Polygon")
-        _write_polygon_coords(ns, poly_elem, cell)
-
-    return etree.tostring(kml, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode("utf-8")
-
-# -------------------------------------------------
-# Generate labeled + merged KML
-# -------------------------------------------------
+# ----------------------------------------------------------------------
+# 🧾 Generate labeled + merged KML
+# ----------------------------------------------------------------------
 def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
     ns = "http://www.opengis.net/kml/2.2"
-    kml = etree.Element(f"{{{ns}}}kml")
-    doc = etree.SubElement(kml, f"{{{ns}}}Document")
-    etree.SubElement(doc, f"{{{ns}}}name").text = "Labeled Grid"
-    etree.SubElement(doc, f"{{{ns}}}description").text = "Developed by Rasipuram Range"
+    kml = etree.Element("{%s}kml" % ns)
+    doc = etree.SubElement(kml, "{%s}Document" % ns)
+    etree.SubElement(doc, "{%s}name" % ns).text = "Labeled Grid"
+    etree.SubElement(doc, "{%s}description" % ns).text = "Developed by Rasipuram Range"
 
-    style = etree.SubElement(doc, f"{{{ns}}}Style", id="gridStyle")
-    ls = etree.SubElement(style, f"{{{ns}}}LineStyle")
-    etree.SubElement(ls, f"{{{ns}}}color").text = "ff0000ff"
-    etree.SubElement(ls, f"{{{ns}}}width").text = "1"
-    ps = etree.SubElement(style, f"{{{ns}}}PolyStyle")
-    etree.SubElement(ps, f"{{{ns}}}fill").text = "0"
+    style_grid = etree.SubElement(doc, "{%s}Style" % ns, id="gridStyle")
+    ls1 = etree.SubElement(style_grid, "{%s}LineStyle" % ns)
+    etree.SubElement(ls1, "{%s}color" % ns).text = "ff0000ff"
+    etree.SubElement(ls1, "{%s}width" % ns).text = "1"
+    ps1 = etree.SubElement(style_grid, "{%s}PolyStyle" % ns)
+    etree.SubElement(ps1, "{%s}fill" % ns).text = "0"
 
-    for i, cell in enumerate(cells_ll, 1):
-        pm = etree.SubElement(doc, f"{{{ns}}}Placemark")
-        etree.SubElement(pm, f"{{{ns}}}name").text = str(i)
-        etree.SubElement(pm, f"{{{ns}}}styleUrl").text = "#gridStyle"
-        html = f"""<table border="1" cellspacing="0" cellpadding="3">
-<tr><td>ID</td><td>{i}</td></tr>
-<tr><td>Range</td><td>{user_inputs.get('range_name','')}</td></tr>
-<tr><td>RF</td><td>{user_inputs.get('rf_name','')}</td></tr>
-<tr><td>Beat</td><td>{user_inputs.get('beat_name','')}</td></tr>
-<tr><td>Year</td><td>{user_inputs.get('year_of_work','')}</td></tr></table>"""
-        desc = etree.SubElement(pm, f"{{{ns}}}description")
-        desc.text = etree.CDATA(html)
-        poly_elem = etree.SubElement(pm, f"{{{ns}}}Polygon")
+    for i, cell in enumerate(cells_ll, start=1):
+        pm = etree.SubElement(doc, "{%s}Placemark" % ns)
+        etree.SubElement(pm, "{%s}name" % ns).text = f"{i}"
+        etree.SubElement(pm, "{%s}styleUrl" % ns).text = "#gridStyle"
+        poly_elem = etree.SubElement(pm, "{%s}Polygon" % ns)
         _write_polygon_coords(ns, poly_elem, cell)
+
     return etree.tostring(kml, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode("utf-8")
 
-# -------------------------------------------------
-# PDF report builder (final)
-# -------------------------------------------------
-def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overlay_present):
-    """Creates clean PDF report with fixed encoding + Streamlit-safe bytes output"""
+# ----------------------------------------------------------------------
+# 📄 PDF REPORT GENERATOR (with satellite background + legend)
+# ----------------------------------------------------------------------
+def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overlay_present,
+                              title_text, density, area_invasive):
+    centroid = merged_ll.centroid
+    minx, miny, maxx, maxy = merged_ll.bounds
+
+    # Download static satellite map from Yandex (free, open)
+    sat_url = (
+        f"https://static-maps.yandex.ru/1.x/?lang=en_US&ll={(minx+maxx)/2},{(miny+maxy)/2}"
+        f"&z=14&l=sat&size=650,450"
+    )
+    tmp_dir = tempfile.gettempdir()
+    map_image_path = os.path.join(tmp_dir, "aoi_satellite.png")
+    try:
+        r = requests.get(sat_url, timeout=15)
+        with open(map_image_path, "wb") as f:
+            f.write(r.content)
+    except Exception:
+        map_image_path = None
+
+    pdf = FPDF("P", "mm", "A4")
+    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.add_page()
+
+    # Font setup
     font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
     if not os.path.exists(font_path):
         try:
@@ -165,85 +162,81 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
             with open(font_path, "wb") as f:
                 f.write(r.content)
         except Exception:
-            st.warning("⚠️ Font download failed — using Helvetica fallback")
-
-    pdf = FPDF("P", "mm", "A4")
-    pdf.set_auto_page_break(auto=True, margin=12)
-    pdf.add_page()
+            pass
 
     if os.path.exists(font_path):
         pdf.add_font("DejaVu", "", font_path)
         pdf.add_font("DejaVu", "B", font_path)
-        pdf.add_font("DejaVu", "I", font_path)
         pdf.set_font("DejaVu", "B", 14)
     else:
         pdf.set_font("Helvetica", "B", 14)
 
-    pdf.cell(0, 8, "KML GRID GENERATOR v3.0 - FIELD REPORT", ln=1, align="C")
-    pdf.ln(3)
-    pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "", 11)
-    pdf.cell(0, 6, f"Range: {user_inputs.get('range_name','')} | RF: {user_inputs.get('rf_name','')}", ln=1)
-    pdf.cell(0, 6, f"Beat: {user_inputs.get('beat_name','')} | Year: {user_inputs.get('year_of_work','')}", ln=1)
+    # Title
+    pdf.cell(0, 8, title_text, ln=1, align="C")
     pdf.ln(3)
 
-    centroid = merged_ll.centroid
-    utm = utm_crs_for_lonlat(centroid.x, centroid.y)
-    total_area = 0
-    rows = []
-    for i, geom in enumerate(cells_ll, 1):
-        area_m2 = gpd.GeoSeries([geom], crs=4326).to_crs(utm).area.iloc[0]
-        area_ha = float(area_m2) / 10000
-        rows.append((i, area_ha, geom.centroid.y, geom.centroid.x))
-        total_area += area_ha
+    # Satellite Image
+    if map_image_path and os.path.exists(map_image_path):
+        pdf.image(map_image_path, x=15, y=25, w=180)
+        pdf.ln(95)
+    else:
+        pdf.ln(100)
 
-    pdf.set_font("DejaVu", "B", 12)
-    pdf.cell(0, 7, "Summary", ln=1)
+    # Legend
     pdf.set_font("DejaVu", "", 11)
-    pdf.cell(0, 6, f"Total Cells: {len(rows)} | Total Area: {total_area:.2f} ha", ln=1)
-    pdf.cell(0, 6, f"Cell Size: {cell_size} m | Overlay: {'Yes' if overlay_present else 'No'}", ln=1)
-    pdf.cell(0, 6, f"Generated: {datetime.now().strftime('%d-%b-%Y %H:%M')}", ln=1)
-    pdf.ln(4)
-
-    pdf.set_font("DejaVu", "B", 11)
-    pdf.cell(25, 8, "Grid #", border=1, align="C")
-    pdf.cell(35, 8, "Area (ha)", border=1, align="C")
-    pdf.cell(65, 8, "Lat", border=1, align="C")
-    pdf.cell(65, 8, "Lon", border=1, align="C")
-    pdf.ln(8)
-
+    pdf.cell(0, 8, "Legend:", ln=1)
     pdf.set_font("DejaVu", "", 10)
-    for i, a, lat, lon in rows:
-        pdf.cell(25, 7, str(i), border=1)
-        pdf.cell(35, 7, f"{a:.2f}", border=1, align="R")
-        pdf.cell(65, 7, f"{lat:.6f}", border=1, align="R")
-        pdf.cell(65, 7, f"{lon:.6f}", border=1, align="R")
-        pdf.ln(7)
+
+    legend_lines = [
+        f"Range: {user_inputs.get('range_name','')}",
+        f"RF: {user_inputs.get('rf_name','')}",
+        f"Beat: {user_inputs.get('beat_name','')}",
+        f"Density: {density}",
+        f"Area of Invasive: {area_invasive} Ha",
+        f"Each Box = 1 Ha",
+        f"Grid Cell Size: {cell_size} m",
+        f"Overlay Included: {'Yes' if overlay_present else 'No'}",
+        f"Generated: {datetime.now().strftime('%d-%b-%Y %H:%M')}",
+    ]
+    for line in legend_lines:
+        pdf.cell(0, 6, line, ln=1)
 
     pdf.ln(4)
     pdf.set_font("DejaVu", "I", 9)
-    pdf.multi_cell(0, 5, "Note: Areas computed in UTM projection for accuracy.\nReport generated by KML Grid Generator v3.0 - Rasipuram Range.")
+    pdf.multi_cell(
+        0, 5,
+        "Note: Satellite background automatically fetched. "
+        "Report generated using KML Grid Generator v3.0 — Rasipuram Range."
+    )
 
     result = pdf.output(dest="S")
-    if isinstance(result, bytearray):
-        return bytes(result)
-    elif isinstance(result, bytes):
+    if isinstance(result, (bytes, bytearray)):
         return result
     elif isinstance(result, str):
-        return result.encode("latin-1", errors="ignore")
+        return result.encode("latin1", errors="ignore")
+    elif hasattr(result, "getvalue"):
+        return result.getvalue()
     else:
-        raise TypeError(f"Unexpected PDF output type: {type(result)}")
+        raise TypeError(f"Unexpected output type: {type(result)}")
 
-# -------------------------------------------------
-# Sidebar Inputs
-# -------------------------------------------------
+# ----------------------------------------------------------------------
+# 🧰 SIDEBAR UI
+# ----------------------------------------------------------------------
 st.sidebar.header("⚙️ Options")
-uploaded_aoi = st.sidebar.file_uploader("Upload AOI (KML/KMZ)", type=["kml", "kmz"])
-overlay_file = st.sidebar.file_uploader("Optional Overlay", type=["kml", "kmz"])
-cell_size = st.sidebar.number_input("Grid cell size (m)", 10, 2000, 100, 10)
-range_name = st.sidebar.text_input("Range Name", "Thammampatti")
-rf_name = st.sidebar.text_input("RF Name", "Karumalai")
-beat_name = st.sidebar.text_input("Beat Name", "A1")
+
+uploaded_aoi = st.sidebar.file_uploader("Upload AOI KML/KMZ", type=["kml", "kmz"])
+overlay_file = st.sidebar.file_uploader("Optional Overlay KML/KMZ", type=["kml", "kmz"])
+cell_size = st.sidebar.number_input("Grid cell size (meters)", min_value=10, max_value=2000, value=100, step=10)
+
+range_name = st.sidebar.text_input("Range Name", "Thammampatty")
+rf_name = st.sidebar.text_input("RF Name", "Paithur RF")
+beat_name = st.sidebar.text_input("Beat Name", "Paithur South")
 year_of_work = st.sidebar.text_input("Year of Work", "2024")
+
+# 🆕 New fields for report
+title_text = st.sidebar.text_input("🧭 Report Title", "Removal of Invasive Species, Thammampatty Range")
+density = st.sidebar.text_input("Density", "Medium")
+area_invasive = st.sidebar.text_input("Area of Invasive (Ha)", "5")
 
 if st.sidebar.button("➕ Add Input Labels"):
     st.session_state["user_inputs"] = {
@@ -254,21 +247,33 @@ if st.sidebar.button("➕ Add Input Labels"):
     }
     st.sidebar.success("✅ Label inputs added.")
 
-generate_pdf = st.sidebar.checkbox("📄 Generate PDF Report", True)
-col_btn1, col_btn2 = st.sidebar.columns(2)
-with col_btn1: generate_click = st.button("▶ Generate Grid")
-with col_btn2: reset_click = st.button("🔄 Reset Map")
-if reset_click: st.session_state.clear(); init_state(); st.rerun()
-if generate_click: st.session_state["generated"] = True
+generate_pdf = st.sidebar.checkbox("📄 Generate PDF Report", value=True)
 
-# -------------------------------------------------
-# Main UI
-# -------------------------------------------------
+col_btn1, col_btn2 = st.sidebar.columns(2)
+with col_btn1:
+    generate_click = st.button("▶ Generate Grid")
+with col_btn2:
+    reset_click = st.button("🔄 Reset Map")
+
+if reset_click:
+    st.session_state.clear()
+    init_state()
+    st.experimental_rerun()
+
+if generate_click:
+    st.session_state["generated"] = True
+
+# ----------------------------------------------------------------------
+# 🗺️ MAIN AREA
+# ----------------------------------------------------------------------
 if st.session_state["generated"]:
     m = folium.Map(location=[11.0, 78.5], zoom_start=8)
-    bounds, overlay_gdf, cells_ll, merged_ll = None, None, [], None
+    bounds = None
+    overlay_gdf = None
+    cells_ll = []
+    merged_ll = None
 
-    if uploaded_aoi:
+    if uploaded_aoi is not None:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".kml") as tmp:
             tmp.write(uploaded_aoi.read())
             tmp_path = tmp.name
@@ -276,44 +281,54 @@ if st.session_state["generated"]:
         polygons = gdf.geometry
         cells_ll, merged_ll = make_grid_exact_clipped(polygons, cell_size)
         aoi_union = unary_union(polygons)
-        folium.GeoJson(mapping(aoi_union), name="AOI", style_function=lambda x: {"color": "red", "weight": 1}).add_to(m)
-        for c in cells_ll:
-            folium.GeoJson(mapping(c), style_function=lambda x: {"color": "red", "weight": 1}).add_to(m)
+
+        folium.GeoJson(mapping(aoi_union), name="AOI",
+                       style_function=lambda x: {"color": "red", "weight": 1, "fillOpacity": 0}).add_to(m)
+        for cell in cells_ll:
+            folium.GeoJson(mapping(cell), name="Grid",
+                           style_function=lambda x: {"color": "yellow", "weight": 1, "fillOpacity": 0}).add_to(m)
+
         minx, miny, maxx, maxy = aoi_union.bounds
         bounds = [[miny, minx], [maxy, maxx]]
 
-    if overlay_file:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".kml") as tmp:
-            tmp.write(overlay_file.read())
-            tmp_path = tmp.name
-        overlay_gdf = gpd.read_file(tmp_path, driver="KML")
+    if overlay_file is not None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".kml") as tmp2:
+            tmp2.write(overlay_file.read())
+            tmp2_path = tmp2.name
+        overlay_gdf = gpd.read_file(tmp2_path, driver="KML")
         for geom in overlay_gdf.geometry:
-            if not geom.is_empty:
-                folium.GeoJson(mapping(geom), style_function=lambda x: {"color": "#FFD700", "weight": 3}).add_to(m)
+            if geom.is_empty:
+                continue
+            folium.GeoJson(mapping(geom), name="Overlay",
+                           style_function=lambda x: {"color": "#FFD700", "weight": 3, "fillOpacity": 0}).add_to(m)
         if bounds is None and not overlay_gdf.empty:
             minx, miny, maxx, maxy = overlay_gdf.total_bounds
             bounds = [[miny, minx], [maxy, maxx]]
 
-    if bounds: m.fit_bounds(bounds)
+    if bounds:
+        m.fit_bounds(bounds)
+
     st_folium(m, width=1200, height=700)
 
-    if uploaded_aoi:
+    if uploaded_aoi is not None:
         user_inputs = st.session_state["user_inputs"]
-        st.success(f"✅ Generated {len(cells_ll)} grid cells inside AOI.")
-        grid_kml = generate_grid_only_kml(cells_ll, merged_ll)
-        labeled_kml = generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf)
+        grid_count = len(cells_ll)
+        total_area_ha = sum([c.area * (111000 ** 2) / 10000 for c in cells_ll])
+        st.success(f"✅ Generated {grid_count} grid cells covering approximately {total_area_ha:.2f} ha inside AOI")
 
+        grid_kml = generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf)
         st.markdown("### 💾 Downloads")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.download_button("📦 Download Grid Only KML", grid_kml, "grid_only.kml", "application/vnd.google-earth.kml+xml")
-        with col2:
-            st.download_button("🧾 Download Labeled + Merged KML", labeled_kml, "merged_labeled.kml", "application/vnd.google-earth.kml+xml")
+            st.download_button("📦 Download Grid KML", grid_kml,
+                               file_name="grid.kml", mime="application/vnd.google-earth.kml+xml")
         with col3:
             if generate_pdf:
-                pdf_bytes = build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overlay_file is not None)
-                st.download_button("📄 Download Report (PDF)", pdf_bytes, "grid_report.pdf", "application/pdf")
-    else:
-        st.info("✅ Overlay loaded (no AOI provided).")
+                pdf_bytes = build_pdf_report_standard(
+                    cells_ll, merged_ll, user_inputs, cell_size,
+                    overlay_file is not None, title_text, density, area_invasive
+                )
+                st.download_button("📄 Download Report (PDF)", pdf_bytes,
+                                   file_name="grid_report.pdf", mime="application/pdf")
 else:
-    st.info("👆 Upload AOI, click ➕ Add Input Labels, then ▶ Generate Grid.")
+    st.info("👆 Upload AOI, set labels, then press ▶ Generate Grid.")
