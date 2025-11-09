@@ -35,5 +35,7 @@ matplotlib
 requests
 pyproj
 shapely
+pillow
+
 
 
