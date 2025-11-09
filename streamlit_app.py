@@ -12,6 +12,7 @@ from fpdf import FPDF
 from datetime import datetime
 import matplotlib.pyplot as plt
 import contextily as ctx
+import matplotlib.patches as patches
 
 # ----------------------------------------------------------------------
 st.set_page_config(page_title="KML Grid Generator v3.1", layout="wide")
@@ -127,51 +128,105 @@ def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
 def build_pdf_report_standard(cells_ll, merged_ll, overlay_gdf, user_inputs,
                               cell_size, overlay_present, title_text, density, area_invasive):
     centroid = merged_ll.centroid
-    utm = utm_crs_for_lonlat(centroid.x, centroid.y)
     aoi_gdf = gpd.GeoSeries([merged_ll], crs="EPSG:4326").to_crs(3857)
     grid_gdf = gpd.GeoDataFrame(geometry=cells_ll, crs="EPSG:4326").to_crs(3857)
     overlay_gdf = overlay_gdf.to_crs(3857) if overlay_gdf is not None else None
 
-    # --- Create map (zoomed out slightly, with padding) ---
-    fig, ax = plt.subplots(figsize=(8, 4.8))  # slightly smaller height
-    aoi_gdf.boundary.plot(ax=ax, color="red", linewidth=1.2)
-    grid_gdf.boundary.plot(ax=ax, color="yellow", linewidth=0.6)
+    # --- Render map ---
+    fig, ax = plt.subplots(figsize=(8, 4.8))
+    aoi_gdf.boundary.plot(ax=ax, color="#FF0000", linewidth=3)
+    grid_gdf.boundary.plot(ax=ax, color="#FF0000", linewidth=1)
     if overlay_gdf is not None and not overlay_gdf.empty:
-        overlay_gdf.boundary.plot(ax=ax, color="orange", linewidth=1.5)
+        overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3)
     ctx.add_basemap(ax, source=ctx.providers.Esri.WorldImagery, zoom=12, attribution=False)
     ax.set_axis_off()
+
+    # 🧭 Tamil-style North Compass (circle + arrow)
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
+    circle_center = (xlim[1] - (xlim[1] - xlim[0]) * 0.07, ylim[1] - (ylim[1] - ylim[0]) * 0.1)
+    radius = (xlim[1] - xlim[0]) * 0.015
+
+    circle = patches.Circle(circle_center, radius, edgecolor="black", facecolor="#2E8B57", lw=2, zorder=5)
+    ax.add_patch(circle)
+
+    # Upward arrow inside circle
+    ax.annotate(
+        "", xy=(circle_center[0], circle_center[1] + radius * 0.6),
+        xytext=(circle_center[0], circle_center[1] - radius * 0.4),
+        arrowprops=dict(facecolor="white", edgecolor="white", shrink=0.05, width=3, headwidth=8),
+        zorder=6
+    )
+
+    # "N" label below arrow
+    ax.text(circle_center[0], circle_center[1] - radius * 0.8, "N",
+            ha="center", va="center", fontsize=12, fontweight="bold", color="white", zorder=6)
+
     plt.tight_layout(pad=0)
     img_path = os.path.join(tempfile.gettempdir(), "final_map.png")
     plt.savefig(img_path, bbox_inches="tight", pad_inches=0, dpi=250)
     plt.close(fig)
 
-    # --- Build PDF ---
+    # --- PDF ---
     pdf = FPDF("P", "mm", "A4")
-    pdf.set_auto_page_break(auto=True, margin=10)
+    pdf.set_auto_page_break(auto=True, margin=12)
     pdf.add_page()
 
-    # Font setup
+    # 🟩 Page border
+    pdf.set_draw_color(0, 100, 0)
+    pdf.set_line_width(0.7)
+    pdf.rect(5, 5, 200, 287)
+
+    # === Fonts ===
     font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
     if os.path.exists(font_path):
         pdf.add_font("DejaVu", "", font_path, uni=True)
         pdf.add_font("DejaVu", "B", font_path, uni=True)
         pdf.add_font("DejaVu", "I", font_path, uni=True)
-        pdf.set_font("DejaVu", "B", 14)
+        pdf.set_font("DejaVu", "B", 18)
     else:
-        pdf.set_font("Helvetica", "B", 14)
+        pdf.set_font("Helvetica", "B", 18)
 
-    # --- Title ---
+    # === Header ===
+    emblem_path = os.path.join(os.path.dirname(__file__), "tn_emblem.png")
+    header_y = 10
+    pdf.set_text_color(0, 100, 0)
+    pdf.cell(65, 10, "FOREST", align="R")
+    pdf.cell(60, 10, "", align="C")
+    pdf.cell(65, 10, "DEPARTMENT", ln=1, align="L")
+    pdf.set_text_color(0, 0, 0)
+    if os.path.exists(emblem_path):
+        pdf.image(emblem_path, x=90, y=header_y - 2, w=30, h=30)
+    pdf.set_y(header_y + 20)
+    pdf.set_draw_color(0, 100, 0)
+    pdf.set_line_width(0.5)
+    pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+    pdf.ln(6)
+
+    # === Title ===
+    pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "B", 14)
     pdf.cell(0, 8, title_text, ln=1, align="C")
+    pdf.ln(4)
 
-    # --- Map image (smaller, fixed) ---
-    pdf.image(img_path, x=15, y=28, w=180, h=95)  # fixed height
-    pdf.set_y(130)  # start legend after map ends
+    # === Map ===
+    map_y = pdf.get_y()
+    pdf.image(img_path, x=15, y=map_y, w=180, h=95)
+    pdf.set_draw_color(0, 100, 0)
+    pdf.set_line_width(0.5)
+    pdf.rect(15, map_y, 180, 95)
+    pdf.set_y(map_y + 102)
 
-    # --- 2-column legend neatly below map ---
-    pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "", 11)
+    # === Legend ===
     pdf.set_fill_color(245, 245, 245)
-    pdf.cell(0, 7, "Legend", ln=1, align="L", fill=True)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.set_line_width(0.2)
+    pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "B", 12)
+    pdf.cell(0, 8, "Legend", ln=1, align="L", fill=True)
+    pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "", 11)
+    pdf.ln(2)
 
+    col_width = 95
+    row_height = 6
     left_data = [
         f"Range: {user_inputs.get('range_name','')}",
         f"Beat: {user_inputs.get('beat_name','')}",
@@ -184,19 +239,37 @@ def build_pdf_report_standard(cells_ll, merged_ll, overlay_gdf, user_inputs,
         f"Area of Invasive: {area_invasive} Ha",
         f"Overlay: {'Yes' if overlay_present else 'No'}"
     ]
-
-    col_width = 95
-    row_height = 6
     for l, r in zip(left_data, right_data):
         pdf.cell(col_width, row_height, l, border=0)
         pdf.cell(col_width, row_height, r, ln=1, border=0)
+    pdf.ln(5)
 
-    # --- Footer ---
+    # === Color Key ===
+    pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "B", 11)
+    pdf.cell(0, 7, "Color Key", ln=1)
+    pdf.ln(1)
+    legend_items = [
+        ("AOI Boundary", "#FF0000", 3),
+        ("Grid (1 Ha)", "#FF0000", 1),
+        ("Overlay (Cleared Area)", "#FFD700", 3)
+    ]
+    for label, color, thickness in legend_items:
+        r, g, b = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
+        pdf.set_draw_color(r, g, b)
+        y = pdf.get_y() + 3
+        pdf.line(20, y, 50, y)
+        pdf.set_xy(55, pdf.get_y())
+        pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "", 10)
+        pdf.cell(0, 6, label, ln=1)
+    pdf.ln(4)
+
+    # === Footer ===
     pdf.set_y(-18)
     pdf.set_font("DejaVu" if "DejaVu" in pdf.fonts else "Helvetica", "I", 9)
-    pdf.multi_cell(0, 5, "Created with Web UI Developed by Rasipuram Range", align="C")
+    pdf.set_text_color(60, 60, 60)
+    pdf.multi_cell(0, 5, "Developed by Rasipuram Range", align="C")
 
-    # --- Return PDF bytes ---
+    # Return PDF
     result = pdf.output(dest="S")
     if isinstance(result, bytearray):
         result = bytes(result)
@@ -305,6 +378,7 @@ if st.session_state["generated"]:
                                    file_name="grid_report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI, set labels, then press ▶ Generate Grid.")
+
 
 
 
