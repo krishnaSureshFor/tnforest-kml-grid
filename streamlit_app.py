@@ -296,13 +296,23 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
         f"Beat: {user_inputs.get('beat_name','')}",
         f"Year of Work: {user_inputs.get('year_of_work','')}",
     ]
+    # --- Compute AOI and Overlay areas ---
+    centroid = merged_ll.centroid
+    utm_crs = utm_crs_for_lonlat(centroid.x, centroid.y)
+    aoi_area_ha = gpd.GeoSeries([merged_ll], crs=4326).to_crs(utm_crs).area.iloc[0] / 10000.0
+
+    if overlay_gdf is not None and not overlay_gdf.empty:
+        overlay_gdf = overlay_gdf.to_crs(utm_crs)
+        overlay_area_ha = overlay_gdf.area.sum() / 10000.0
+    else:
+        overlay_area_ha = 0.0
+
     col2 = [
         f"Density: {density}",
-        f"Area of Invasive: {area_invasive} Ha",
+        f"AOI Area: {aoi_area_ha:.2f} Ha",
+        f"Overlay Area: {overlay_area_ha:.2f} Ha" if overlay_area_ha > 0 else "Overlay Area: —",
         f"Cell Size: {cell_size} m",
-        f"Overlay: {'Yes' if overlay_gdf is not None and not overlay_gdf.empty else 'No'}",
     ]
-
     for i in range(4):
         pdf.text(25, y_start + i * 6, col1[i])
         pdf.text(115, y_start + i * 6, col2[i])
@@ -467,6 +477,7 @@ if st.session_state["generated"]:
             st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, add labels, then click ▶ Generate Grid.")
+
 
 
 
