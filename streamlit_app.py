@@ -227,90 +227,90 @@ def build_pdf_report_standard(
     cells_ll, merged_ll, user_inputs, cell_size,
     overlay_gdf, title_text, density, area_invasive
 ):
-    """
-    Stable PDF builder (your previously working version):
-    - Esri.WorldImagery satellite basemap
-    - Fixed map box (180mm wide x 145mm high)
-    - Legend below map in 2 columns
-    - Note line below legend
-    - Clean bytes output (opens in all PDF viewers)
-    """
-    import tempfile, os
     import geopandas as gpd
     import matplotlib.pyplot as plt
     import contextily as ctx
+    from shapely.geometry import Polygon
     from fpdf import FPDF
+    import tempfile, os
 
-    # --- Layout knobs you can tweak safely ---
-    MAP_X = 15          # left margin for map (mm)
-    MAP_Y = 55          # top position of map (mm)
-    MAP_W = 180         # map width (mm)
-    MAP_H = 145         # map height (mm) ~3/4 page
-    LEGEND_GAP = 8      # gap below map before legend (mm)
-    LEGEND_H = 40       # legend height (mm)
-    NOTE_GAP = 5        # gap between legend and note (mm)
+    # ──────────────────────────────
+    # CONFIGURATION
+    # ──────────────────────────────
+    MAP_X, MAP_Y = 15, 55      # Map placement
+    MAP_W, MAP_H = 180, 145    # Map size (¾ page)
+    LEGEND_GAP = 8             # Gap below map before legend
+    NOTE_GAP = 3               # Gap between legend and note
+    EMBLEM_PATH = os.path.join(os.path.dirname(__file__), "tn_emblem.png")
 
-    # 1) PDF shell
     pdf = FPDF("P", "mm", "A4")
     pdf.set_auto_page_break(auto=True, margin=15)
+
+    # ──────────────────────────────
+    # HEADER FUNCTION
+    # ──────────────────────────────
+    def header_section():
+        pdf.set_y(10)
+        if os.path.exists(EMBLEM_PATH):
+            pdf.image(EMBLEM_PATH, x=93, y=8, w=25)
+        pdf.set_y(35)
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.cell(0, 10, "FOREST DEPARTMENT", align="C", ln=1)
+
+    # ──────────────────────────────
+    # PAGE 1 — MAP + LEGEND
+    # ──────────────────────────────
     pdf.add_page()
-
-    # 2) Header + Title
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.cell(0, 10, "FOREST DEPARTMENT", ln=1, align="C")
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, title_text or "Invasive Species Report", ln=1, align="C")
+    header_section()
     pdf.ln(2)
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(0, 10, title_text, align="C", ln=1)
 
-    # 3) Build map image (fixed size) with ESRI satellite basemap
+    # Generate map image
     tmp_dir = tempfile.gettempdir()
     map_img_path = os.path.join(tmp_dir, "map_overlay.png")
 
-    fig, ax = plt.subplots(figsize=(7, 5.8))  # roughly matches 180x145mm at 25.4 mm/inch
+    fig, ax = plt.subplots(figsize=(7, 5.8))
     ax.set_facecolor("white")
 
-    # Project to Web Mercator for basemap
-    merged_gdf = gpd.GeoSeries([merged_ll], crs=4326).to_crs(3857)
-    grid_gdf   = gpd.GeoSeries(cells_ll, crs=4326).to_crs(3857)
-
-    # AOI (3 px red), Grid (1 px red)
+    merged_gdf = gpd.GeoSeries([merged_ll], crs="EPSG:4326").to_crs(3857)
+    grid_gdf = gpd.GeoSeries(cells_ll, crs="EPSG:4326").to_crs(3857)
     merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3, label="AOI")
     grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1, label="Grid")
 
-    # Overlay (3 px golden yellow), if present
     if overlay_gdf is not None and not overlay_gdf.empty:
-        overlay_3857 = overlay_gdf.to_crs(3857)
-        overlay_3857.boundary.plot(ax=ax, color="#FFD700", linewidth=3, label="Overlay")
+        overlay_gdf = overlay_gdf.to_crs(3857)
+        overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3, label="Overlay")
 
-    # Esri satellite basemap (no attribution text baked into image)
-    # (Leave attribution default; do NOT pass unsupported params)
     ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery)
     ax.axis("off")
     plt.tight_layout(pad=0.1)
     fig.savefig(map_img_path, dpi=250, bbox_inches="tight")
     plt.close(fig)
 
-    # 4) Place map at fixed box
+    # Place map image
     pdf.image(map_img_path, x=MAP_X, y=MAP_Y, w=MAP_W, h=MAP_H)
 
-    # 5) Legend just below the map (2 columns)
+    # ──────────────────────────────
+    # LEGEND BELOW MAP
+    # ──────────────────────────────
     legend_y = MAP_Y + MAP_H + LEGEND_GAP
     pdf.set_y(legend_y)
-    pdf.set_fill_color(245, 245, 240)   # light panel
+    pdf.set_fill_color(245, 245, 240)
     pdf.set_draw_color(180, 180, 180)
-    pdf.rect(MAP_X, legend_y, MAP_W, LEGEND_H, style="FD")
+    pdf.rect(MAP_X, legend_y, MAP_W, 40, style="FD")
 
     pdf.set_font("Helvetica", "", 11)
     y_start = legend_y + 10
     col1 = [
-        f"Range: {user_inputs.get('range_name','')}",
-        f"RF: {user_inputs.get('rf_name','')}",
-        f"Beat: {user_inputs.get('beat_name','')}",
-        f"Year of Work: {user_inputs.get('year_of_work','')}",
+        f"Range: {user_inputs.get('range_name', '')}",
+        f"RF: {user_inputs.get('rf_name', '')}",
+        f"Beat: {user_inputs.get('beat_name', '')}",
+        f"Year: {user_inputs.get('year_of_work', '')}",
     ]
     col2 = [
-        f"Density: {density or ''}",
-        f"Area of Invasive: {area_invasive or ''} Ha",
+        f"Density: {density}",
+        f"Area of Invasive: {area_invasive} Ha",
         f"Cell Size: {cell_size} m",
         f"Overlay: {'Yes' if overlay_gdf is not None and not overlay_gdf.empty else 'No'}",
     ]
@@ -318,23 +318,81 @@ def build_pdf_report_standard(
         pdf.text(MAP_X + 10, y_start + i * 6, col1[i])
         pdf.text(MAP_X + 100, y_start + i * 6, col2[i])
 
-    # 6) Note line below legend (inside first page)
-    note_y = legend_y + LEGEND_H + NOTE_GAP
+    # ──────────────────────────────
+    # NOTE LINE (IN SAME PAGE)
+    # ──────────────────────────────
+    note_y = legend_y + 45
     pdf.set_y(note_y)
     pdf.set_font("Helvetica", "I", 9)
     pdf.set_text_color(80, 80, 80)
-    pdf.multi_cell(
-        0, 5,
-        "Note: Satellite background and boundaries are automatically generated. "
-        "Developed by Rasipuram Range."
-    )
+    pdf.multi_cell(0, 5, "Note: Satellite background (Esri) and boundaries are automatically generated. Developed by Rasipuram Range.")
     pdf.set_text_color(0, 0, 0)
 
-    # 7) Return as bytes (robust for all fpdf2 variants)
-    out = pdf.output(dest="S")
-    if isinstance(out, (bytes, bytearray)):
-        return bytes(out)
-    return str(out).encode("latin1", errors="ignore")
+    # ──────────────────────────────
+    # PAGE 2 — CORNER GPS TABLE
+    # ──────────────────────────────
+    pdf.add_page()
+    header_section()
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 10, "Corner GPS of Overlay Area", ln=1, align="C")
+
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(25, 8, "S.No", 1, align="C")
+    pdf.cell(75, 8, "Latitude", 1, align="C")
+    pdf.cell(75, 8, "Longitude", 1, align="C")
+    pdf.ln(8)
+    pdf.set_font("Helvetica", "", 10)
+
+    row_no = 1
+    if overlay_gdf is not None and not overlay_gdf.empty:
+        overlay = overlay_gdf.to_crs(4326)
+        for geom in overlay.geometry:
+            if geom.is_empty:
+                continue
+            coords = []
+            if geom.geom_type == "Polygon":
+                coords = list(geom.exterior.coords)
+            elif geom.geom_type == "MultiPolygon":
+                for part in geom.geoms:
+                    coords.extend(list(part.exterior.coords))
+            for lon, lat, *_ in coords:
+                pdf.cell(25, 7, str(row_no), 1)
+                pdf.cell(75, 7, f"{lat:.6f}", 1, align="R")
+                pdf.cell(75, 7, f"{lon:.6f}", 1, align="R")
+                pdf.ln(7)
+                row_no += 1
+                if pdf.get_y() > 265:
+                    pdf.add_page()
+                    header_section()
+                    pdf.ln(2)
+                    pdf.set_font("Helvetica", "B", 11)
+                    pdf.cell(25, 8, "S.No", 1, align="C")
+                    pdf.cell(75, 8, "Latitude", 1, align="C")
+                    pdf.cell(75, 8, "Longitude", 1, align="C")
+                    pdf.ln(8)
+                    pdf.set_font("Helvetica", "", 10)
+    else:
+        pdf.cell(0, 8, "No overlay polygons detected.", 1, align="C")
+
+    # ──────────────────────────────
+    # PAGE NUMBER FOOTER
+    # ──────────────────────────────
+    total_pages = pdf.page_no()
+    for n in range(1, total_pages + 1):
+        pdf.page = n
+        pdf.set_y(-15)
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.cell(0, 10, f"Page {n} of {total_pages}", 0, 0, "C")
+
+    # ──────────────────────────────
+    # OUTPUT
+    # ──────────────────────────────
+    result = pdf.output(dest="S")
+    if isinstance(result, bytearray):
+        return bytes(result)
+    return result.encode("latin1", errors="ignore")
+
 # ================================================================
 # MAIN LOGIC
 # ================================================================
@@ -404,5 +462,6 @@ if st.session_state["generated"]:
         st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, then click ▶ Generate Grid.")
+
 
 
