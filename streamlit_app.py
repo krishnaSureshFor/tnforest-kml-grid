@@ -544,7 +544,7 @@ if st.session_state.get("generated", False):
     m.fit_bounds(bounds)
     st_folium(m, width=1200, height=700)
 
-    # ============================================================
+   # ============================================================
 # DOWNLOADS — No reload on click (wrapped in form)
 # ============================================================
 st.markdown("### 💾 Downloads")
@@ -583,10 +583,10 @@ with st.form("downloads_form", clear_on_submit=False):
 
     # Dummy submit to keep the form stable
     st.form_submit_button("✅ All files ready — safe to download", disabled=True)
+
+# ← make sure this `else:` is aligned with the *if st.session_state.get...* above
 else:
     st.info("👆 Upload AOI (KML/KMZ) and Overlay, adjust details, then click ▶ **Generate Grid**.")
 
 # Optional: Hide Streamlit spinner for smoother UI
 st.markdown("<style>.stSpinner{display:none}</style>", unsafe_allow_html=True)
-
-
