@@ -20,14 +20,17 @@ st.title("🗺️ KML to Grid Generator v4.3 (KMZ Supported)")
 # ================================================================
 # 🌿 FOREST-THEMED LIGHT UI (FINAL PREMIUM STYLE)
 # ================================================================
+st.set_page_config(page_title="TN Forest — KML Grid Generator v4.2", layout="wide")
+
+# 🌳 Custom gradient background and theme
 custom_style = """
 <style>
-/* 🌄 App background gradient (soft yellow-green forest tone) */
+/* 🌄 App background gradient */
 .stApp {
     background: linear-gradient(135deg, #f9fbd7 0%, #e2f7ca 50%, #d2f5d7 100%);
 }
 
-/* 🧭 Sidebar — Light blue gradient with bold header */
+/* 🧭 Sidebar — light blue gradient with bold forest header */
 section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, #d9efff 0%, #bde0fe 100%);
     color: #1d3557;
@@ -43,13 +46,15 @@ section[data-testid="stSidebar"] h2::before {
     content: "🌲 ";
 }
 
-/* 🌳 Titles and Headings */
-h1, h2, h3, h4 {
-    color: #1b4332;
-    font-family: "Segoe UI", sans-serif;
+/* 🌿 Input styling */
+input, textarea, select {
+    background-color: #fafff4 !important;
+    border: 1px solid #b6d7a8 !important;
+    color: #1b4332 !important;
+    border-radius: 6px !important;
 }
 
-/* 🌿 Buttons */
+/* 🌳 Buttons */
 div.stButton > button {
     background: linear-gradient(90deg, #8fd694, #65c18c);
     color: white;
@@ -79,15 +84,7 @@ div.stButton > button:hover {
     transform: scale(1.03);
 }
 
-/* 🌿 Inputs and text boxes */
-input, textarea, select {
-    background-color: #fafff4 !important;
-    border: 1px solid #b6d7a8 !important;
-    color: #1b4332 !important;
-    border-radius: 6px !important;
-}
-
-/* 🗺️ Folium map frame — double color border, rounded corners, shadow */
+/* 🗺️ Folium map frame — double border, shadow, rounded */
 iframe[title="streamlit_folium"] {
     border-radius: 18px;
     border: 5px double transparent;
@@ -99,20 +96,90 @@ iframe[title="streamlit_folium"] {
     padding: 2px;
 }
 
-/* Horizontal lines */
-hr {
-    border: 0;
-    border-top: 1px solid #cde4c1;
-}
-
-/* Fine text styling */
-label, span, p {
-    color: #1b4332 !important;
+/* Section headers */
+h1, h2, h3, h4 {
+    color: #1b4332;
     font-family: "Segoe UI", sans-serif;
 }
+
+/* Footer & text */
+hr { border: 0; border-top: 1px solid #cde4c1; }
+label, span, p { color: #1b4332 !important; font-family: "Segoe UI", sans-serif; }
 </style>
 """
 st.markdown(custom_style, unsafe_allow_html=True)
+
+# ================================================================
+# 🌲 HEADER BANNER
+# ================================================================
+st.markdown("""
+<div style='text-align:center; padding:15px; 
+background:linear-gradient(90deg, #4caf50, #81c784);
+border-radius:10px; color:white; font-size:28px; font-weight:700;
+box-shadow:0 4px 10px rgba(0,0,0,0.25); letter-spacing:1px;'>
+🌿 Tamil Nadu Forest Department — KML Grid Generator v4.2
+</div>
+""", unsafe_allow_html=True)
+
+# ================================================================
+# 🧭 SIDEBAR LAYOUT
+# ================================================================
+st.sidebar.header("⚙️ Tool Settings")
+
+with st.sidebar.expander("📂 Upload Files (AOI / Overlay)", expanded=True):
+    uploaded_aoi = st.file_uploader("Upload AOI KML/KMZ", type=["kml", "kmz"])
+    overlay_file = st.file_uploader("Optional Overlay KML/KMZ", type=["kml", "kmz"])
+
+with st.sidebar.expander("🌲 Forest Details"):
+    range_name = st.text_input("Range Name", "Thammampatti")
+    rf_name = st.text_input("RF Name", "Karumalai")
+    beat_name = st.text_input("Beat Name", "A1")
+    year_of_work = st.text_input("Year of Work", "2024")
+
+with st.sidebar.expander("📄 Report Configuration"):
+    title_text = st.text_input("Report Title", "Removal of Invasive Species, Thammampatti Range")
+    density = st.text_input("Density", "Medium")
+    area_invasive = st.text_input("Area of Invasive (Ha)", "5")
+    cell_size = st.number_input("Grid Cell Size (m)", 10, 2000, 100, 10)
+    generate_pdf = st.checkbox("Generate PDF Report", value=True)
+
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    generate_click = st.button("▶ Generate Grid")
+with col2:
+    reset_click = st.button("🔄 Reset Map")
+
+# ================================================================
+# 💾 DOWNLOAD SECTION UI CARD
+# ================================================================
+def show_download_section():
+    st.markdown("""
+    <div style='padding:15px; background:#f6ffe5; border-radius:12px;
+    border:2px solid #b5d692; box-shadow:0 3px 6px rgba(0,0,0,0.1);
+    margin-top:20px;'>
+    <h4 style='color:#1b4332; text-align:center;'>💾 Download Section</h4>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ================================================================
+# 🌎 MAP TITLE & FOOTER
+# ================================================================
+def show_map_title():
+    st.markdown("<h4 style='text-align:center; color:#2e7d32;'>🗺️ Map Preview</h4>", unsafe_allow_html=True)
+    st.caption("Zoom or click on grids to explore. Overlays are shown in golden-yellow.")
+
+st.markdown("<hr>", unsafe_allow_html=True)
+
+# ================================================================
+# 🌲 FOOTER BRANDING
+# ================================================================
+def footer_brand():
+    st.markdown("""
+    <hr>
+    <div style='text-align:center; color:#5f5f5f; font-size:13px; padding-top:10px;'>
+    Developed by <b>Rasipuram Forest Range</b> 🌳 | Powered by <b>Python & Streamlit</b>
+    </div>
+    """, unsafe_allow_html=True)
 # ================================================================
 # STATE INIT
 # ================================================================
@@ -572,6 +639,7 @@ if st.session_state["generated"]:
             st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, add labels, then click ▶ Generate Grid.")
+
 
 
 
