@@ -74,8 +74,9 @@ box-shadow:0 4px 10px rgba(0,0,0,0.25); letter-spacing:1px;'>
 st.sidebar.header("⚙️ Tool Settings")
 
 with st.sidebar.expander("📂 Upload Files (AOI / Overlay)", expanded=True):
-    uploaded_aoi = st.file_uploader("Upload AOI KML/KMZ", type=["kml", "kmz"], key="aoi_uploader")
-    overlay_file = st.file_uploader("Optional Overlay KML/KMZ", type=["kml", "kmz"], key="overlay_uploader")
+    uploaded_aoi = st.file_uploader("Upload AOI KML/KMZ", type=["kml", "kmz"], key="aoi_file")
+    overlay_file = st.file_uploader("Optional Overlay KML/KMZ", type=["kml", "kmz"], key="overlay_file")
+
 
 with st.sidebar.expander("🌲 KML Label Details"):
     range_name = st.text_input("Range Name", "Thammampatti", key="range_name")
@@ -446,8 +447,9 @@ if st.session_state.get("generated", False):
                 with open(aoi_path, "wb") as f: f.write(z.read(kml))
         gdf = read_kml_safely(aoi_path)
         polygons = gdf.geometry
+        from shapely import union_all
+        aoi_union = union_all(polygons)
         cells_ll, merged_ll = make_grid_exact_clipped(polygons, cell_size)
-        aoi_union = unary_union(polygons)
         folium.GeoJson(mapping(aoi_union),
                        style_function=lambda x: {"color": "red", "weight": 3, "fillOpacity": 0}).add_to(m)
         for c in cells_ll:
@@ -455,6 +457,9 @@ if st.session_state.get("generated", False):
                            style_function=lambda x: {"color": "red", "weight": 1, "fillOpacity": 0}).add_to(m)
         bounds = [[aoi_union.bounds[1], aoi_union.bounds[0]],
                   [aoi_union.bounds[3], aoi_union.bounds[2]]]
+    else:
+        st.warning("⚠️ Please upload an AOI file before generating.")
+        st.stop()
 
     # Handle Overlay (if uploaded)
     if overlay_file:
