@@ -409,13 +409,33 @@ def build_pdf_report_standard(
     return bytes(result) if isinstance(result, (bytes, bytearray)) else result.encode("latin1", errors="ignore")
 
 # ================================================================
-# MAIN APP
+# MAIN APP CONTROL FLOW — Runs only on Generate
 # ================================================================
-if st.session_state["generated"]:
+
+# 1️⃣ Collect user input values into session state on every render
+st.session_state["user_inputs"] = {
+    "range_name": range_name,
+    "rf_name": rf_name,
+    "beat_name": beat_name,
+    "year_of_work": year_of_work,
+}
+st.session_state["title_text"] = title_text
+st.session_state["density"] = density
+st.session_state["area_invasive"] = area_invasive
+st.session_state["cell_size"] = cell_size
+
+# 2️⃣ Only execute heavy logic if user pressed Generate
+if generate_click:
+    st.session_state["generated"] = True
+
+# 3️⃣ Only display map + outputs once generated
+if st.session_state.get("generated", False):
+
+    st.success("✅ Grid successfully generated! Scroll below to preview map and downloads.")
     m = folium.Map(location=[11, 78.5], zoom_start=8)
     cells_ll, merged_ll, overlay_gdf, bounds = [], None, None, None
 
-    # AOI
+    # Handle AOI (if uploaded)
     if uploaded_aoi:
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             tmp.write(uploaded_aoi.read()); aoi_path = tmp.name
@@ -428,13 +448,15 @@ if st.session_state["generated"]:
         polygons = gdf.geometry
         cells_ll, merged_ll = make_grid_exact_clipped(polygons, cell_size)
         aoi_union = unary_union(polygons)
-        folium.GeoJson(mapping(aoi_union), style_function=lambda x: {"color": "red", "weight": 3, "fillOpacity": 0}).add_to(m)
+        folium.GeoJson(mapping(aoi_union),
+                       style_function=lambda x: {"color": "red", "weight": 3, "fillOpacity": 0}).add_to(m)
         for c in cells_ll:
-            folium.GeoJson(mapping(c), style_function=lambda x: {"color": "red", "weight": 1, "fillOpacity": 0}).add_to(m)
+            folium.GeoJson(mapping(c),
+                           style_function=lambda x: {"color": "red", "weight": 1, "fillOpacity": 0}).add_to(m)
         bounds = [[aoi_union.bounds[1], aoi_union.bounds[0]],
                   [aoi_union.bounds[3], aoi_union.bounds[2]]]
 
-    # Overlay
+    # Handle Overlay (if uploaded)
     if overlay_file:
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             tmp.write(overlay_file.read()); ov_path = tmp.name
@@ -446,26 +468,36 @@ if st.session_state["generated"]:
         overlay_gdf = read_kml_safely(ov_path).to_crs(4326)
         for g in overlay_gdf.geometry:
             if g.is_empty: continue
-            folium.GeoJson(mapping(g), style_function=lambda x: {"color": "#FFD700", "weight": 3, "fillOpacity": 0}).add_to(m)
+            folium.GeoJson(mapping(g),
+                           style_function=lambda x: {"color": "#FFD700", "weight": 3, "fillOpacity": 0}).add_to(m)
 
     if bounds:
         m.fit_bounds(bounds)
+
+    # Display map preview
     st_folium(m, width=1200, height=700)
 
-    # Downloads
+    # Generate all outputs
     ui = st.session_state["user_inputs"]
     grid_only_kml = generate_grid_only_kml(cells_ll, merged_ll, ui)
-    labeled_kml  = generate_labeled_kml(cells_ll, merged_ll, ui, overlay_gdf)
-    pdf_bytes    = build_pdf_report_standard(cells_ll, merged_ll, ui, cell_size, overlay_gdf, title_text, density, area_invasive)
+    labeled_kml = generate_labeled_kml(cells_ll, merged_ll, ui, overlay_gdf)
+    pdf_bytes = build_pdf_report_standard(
+        cells_ll, merged_ll, ui, cell_size, overlay_gdf,
+        title_text, density, area_invasive
+    )
 
+    # Download section
     st.markdown("### 💾 Downloads")
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.download_button("📦 Download Grid Only KML", grid_only_kml, file_name="grid_only.kml", mime="application/vnd.google-earth.kml+xml")
+        st.download_button("📦 Download Grid Only KML", grid_only_kml,
+                           file_name="grid_only.kml", mime="application/vnd.google-earth.kml+xml")
     with c2:
-        st.download_button("🧾 Download Labeled + Overlay KML", labeled_kml, file_name="merged_labeled.kml", mime="application/vnd.google-earth.kml+xml")
+        st.download_button("🧾 Download Labeled + Overlay KML", labeled_kml,
+                           file_name="merged_labeled.kml", mime="application/vnd.google-earth.kml+xml")
     with c3:
         if generate_pdf:
-            st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
+            st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes,
+                               file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
-    st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, then click ▶ Generate Grid.")
+    st.info("👆 Upload AOI (KML/KMZ) and Overlay, adjust details, then click ▶ **Generate Grid**.")
