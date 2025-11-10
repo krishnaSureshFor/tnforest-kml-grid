@@ -414,16 +414,18 @@ def build_pdf_report_standard(
 # ================================================================
 
 # 1️⃣ Collect user input values into session state on every render
+# 1️⃣ Collect user input values into session state on every render
 st.session_state["user_inputs"] = {
-    "range_name": range_name,
-    "rf_name": rf_name,
-    "beat_name": beat_name,
-    "year_of_work": year_of_work,
+    "range_name": st.session_state.range_name,
+    "rf_name": st.session_state.rf_name,
+    "beat_name": st.session_state.beat_name,
+    "year_of_work": st.session_state.year_of_work,
 }
-st.session_state["title_text"] = title_text
-st.session_state["density"] = density
-st.session_state["area_invasive"] = area_invasive
-st.session_state["cell_size"] = cell_size
+# These are already stored automatically by widgets
+title_text = st.session_state.title_text
+density = st.session_state.density
+area_invasive = st.session_state.area_invasive
+cell_size = st.session_state.cell_size
 
 # 2️⃣ Only execute heavy logic if user pressed Generate
 if generate_click:
@@ -506,3 +508,4 @@ if st.session_state.get("generated", False):
                                file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ) and Overlay, adjust details, then click ▶ **Generate Grid**.")
+
