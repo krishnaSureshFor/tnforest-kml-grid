@@ -545,9 +545,12 @@ if st.session_state.get("generated", False):
     st_folium(m, width=1200, height=700)
 
     # ============================================================
-    # DOWNLOADS — No reload on click
-    # ============================================================
-    st.markdown("### 💾 Downloads")
+# DOWNLOADS — No reload on click (wrapped in form)
+# ============================================================
+st.markdown("### 💾 Downloads")
+
+# Wrap the downloads in a form so clicking buttons doesn't re-run the app
+with st.form("downloads_form", clear_on_submit=False):
     c1, c2, c3 = st.columns(3)
 
     with c1:
@@ -556,14 +559,18 @@ if st.session_state.get("generated", False):
             st.session_state["grid_only_kml"],
             file_name="grid_only.kml",
             mime="application/vnd.google-earth.kml+xml",
+            use_container_width=True
         )
+
     with c2:
         st.download_button(
             "🧾 Download Labeled + Overlay KML",
             st.session_state["labeled_kml"],
             file_name="merged_labeled.kml",
             mime="application/vnd.google-earth.kml+xml",
+            use_container_width=True
         )
+
     with c3:
         if generate_pdf:
             st.download_button(
@@ -571,11 +578,15 @@ if st.session_state.get("generated", False):
                 st.session_state["pdf_bytes"],
                 file_name="Invasive_Report.pdf",
                 mime="application/pdf",
+                use_container_width=True
             )
 
+    # Dummy submit to keep the form stable
+    st.form_submit_button("✅ All files ready — safe to download", disabled=True)
 else:
     st.info("👆 Upload AOI (KML/KMZ) and Overlay, adjust details, then click ▶ **Generate Grid**.")
 
 # Optional: Hide Streamlit spinner for smoother UI
 st.markdown("<style>.stSpinner{display:none}</style>", unsafe_allow_html=True)
+
 
