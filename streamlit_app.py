@@ -223,123 +223,118 @@ def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
 # ================================================================
 # PDF REPORT FUNCTION
 # ================================================================
-def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
+def build_pdf_report_standard(
+    cells_ll, merged_ll, user_inputs, cell_size,
+    overlay_gdf, title_text, density, area_invasive
+):
     """
-    Generate labeled + overlay KML.
-    Adds:
-      ✅ Document description
-      ✅ Balloon popups for each grid
-      ✅ Accurate grid area (ha)
+    Stable PDF builder (your previously working version):
+    - Esri.WorldImagery satellite basemap
+    - Fixed map box (180mm wide x 145mm high)
+    - Legend below map in 2 columns
+    - Note line below legend
+    - Clean bytes output (opens in all PDF viewers)
     """
-    ns = "http://www.opengis.net/kml/2.2"
-    kml = etree.Element("{%s}kml" % ns)
-    doc = etree.SubElement(kml, "{%s}Document" % ns)
-    etree.SubElement(doc, "{%s}name" % ns).text = "Labeled Grid + Overlay"
-    etree.SubElement(doc, "{%s}description" % ns).text = (
-        "This KML file contains generated grid cells and overlay polygons for "
-        "forest invasive monitoring.\n"
-        "Developed by Rasipuram Range, Tamil Nadu Forest Department."
-    )
+    import tempfile, os
+    import geopandas as gpd
+    import matplotlib.pyplot as plt
+    import contextily as ctx
+    from fpdf import FPDF
 
-    # ==============================
-    # 🟥 GRID STYLE (Red 1px)
-    # ==============================
-    style_grid = etree.SubElement(doc, "{%s}Style" % ns, id="gridStyle")
-    ls1 = etree.SubElement(style_grid, "{%s}LineStyle" % ns)
-    etree.SubElement(ls1, "{%s}color" % ns).text = "ff0000ff"  # red (ABGR)
-    etree.SubElement(ls1, "{%s}width" % ns).text = "1"
-    ps1 = etree.SubElement(style_grid, "{%s}PolyStyle" % ns)
-    etree.SubElement(ps1, "{%s}fill" % ns).text = "0"
+    # --- Layout knobs you can tweak safely ---
+    MAP_X = 15          # left margin for map (mm)
+    MAP_Y = 55          # top position of map (mm)
+    MAP_W = 180         # map width (mm)
+    MAP_H = 145         # map height (mm) ~3/4 page
+    LEGEND_GAP = 8      # gap below map before legend (mm)
+    LEGEND_H = 40       # legend height (mm)
+    NOTE_GAP = 5        # gap between legend and note (mm)
 
-    # ✅ Balloon Style Template (uses $[name] for grid ID)
-    balloon = etree.SubElement(style_grid, "{%s}BalloonStyle" % ns)
-    etree.SubElement(balloon, "{%s}text" % ns).text = (
-        "<![CDATA[<b>Grid ID:</b> $[name]<br>"
-        "<b>Range:</b> %s<br>"
-        "<b>RF:</b> %s<br>"
-        "<b>Beat:</b> %s<br>"
-        "<b>Year:</b> %s<br>"
-        "<b>Area:</b> $[area_ha] ha<br>"
-        "<hr><i>Developed by Rasipuram Range</i>]]>" % (
-            user_inputs.get("range_name", ""),
-            user_inputs.get("rf_name", ""),
-            user_inputs.get("beat_name", ""),
-            user_inputs.get("year_of_work", "")
-        )
-    )
+    # 1) PDF shell
+    pdf = FPDF("P", "mm", "A4")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
 
-    # ==============================
-    # 🟥 AOI STYLE (3px Red)
-    # ==============================
-    style_aoi = etree.SubElement(doc, "{%s}Style" % ns, id="aoiStyle")
-    ls_aoi = etree.SubElement(style_aoi, "{%s}LineStyle" % ns)
-    etree.SubElement(ls_aoi, "{%s}color" % ns).text = "ff0000ff"
-    etree.SubElement(ls_aoi, "{%s}width" % ns).text = "3"
-    ps_aoi = etree.SubElement(style_aoi, "{%s}PolyStyle" % ns)
-    etree.SubElement(ps_aoi, "{%s}fill" % ns).text = "0"
+    # 2) Header + Title
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "FOREST DEPARTMENT", ln=1, align="C")
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, title_text or "Invasive Species Report", ln=1, align="C")
+    pdf.ln(2)
 
-    # ==============================
-    # 🟨 OVERLAY STYLE (Golden 3px)
-    # ==============================
-    style_overlay = etree.SubElement(doc, "{%s}Style" % ns, id="overlayStyle")
-    ls2 = etree.SubElement(style_overlay, "{%s}LineStyle" % ns)
-    etree.SubElement(ls2, "{%s}color" % ns).text = "ff00d7ff"  # golden yellow
-    etree.SubElement(ls2, "{%s}width" % ns).text = "3"
-    ps2 = etree.SubElement(style_overlay, "{%s}PolyStyle" % ns)
-    etree.SubElement(ps2, "{%s}fill" % ns).text = "0"
+    # 3) Build map image (fixed size) with ESRI satellite basemap
+    tmp_dir = tempfile.gettempdir()
+    map_img_path = os.path.join(tmp_dir, "map_overlay.png")
 
-    # ==============================
-    # 🧱 ADD GRID CELLS
-    # ==============================
-    for i, cell in enumerate(cells_ll, start=1):
-        # --- compute area in hectares accurately ---
-        centroid = cell.centroid
-        utm_crs = utm_crs_for_lonlat(centroid.x, centroid.y)
-        area_ha = gpd.GeoSeries([cell], crs=4326).to_crs(utm_crs).area.iloc[0] / 10000.0
+    fig, ax = plt.subplots(figsize=(7, 5.8))  # roughly matches 180x145mm at 25.4 mm/inch
+    ax.set_facecolor("white")
 
-        pm = etree.SubElement(doc, "{%s}Placemark" % ns)
-        etree.SubElement(pm, "{%s}name" % ns).text = f"{i}"
-        etree.SubElement(pm, "{%s}styleUrl" % ns).text = "#gridStyle"
+    # Project to Web Mercator for basemap
+    merged_gdf = gpd.GeoSeries([merged_ll], crs=4326).to_crs(3857)
+    grid_gdf   = gpd.GeoSeries(cells_ll, crs=4326).to_crs(3857)
 
-        # --- description includes human-readable data ---
-        etree.SubElement(pm, "{%s}description" % ns).text = (
-            f"Grid cell {i} — {user_inputs.get('beat_name','')} beat, "
-            f"Area: {area_ha:.2f} ha"
-        )
+    # AOI (3 px red), Grid (1 px red)
+    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3, label="AOI")
+    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1, label="Grid")
 
-        # --- add ExtendedData for use in BalloonStyle ---
-        ext_data = etree.SubElement(pm, "{%s}ExtendedData" % ns)
-        data_tag = etree.SubElement(ext_data, "{%s}Data" % ns, name="area_ha")
-        etree.SubElement(data_tag, "{%s}value" % ns).text = f"{area_ha:.2f}"
-
-        # --- geometry ---
-        poly_elem = etree.SubElement(pm, "{%s}Polygon" % ns)
-        _write_polygon_coords(ns, poly_elem, cell)
-
-    # ==============================
-    # 🟨 ADD OVERLAY (if any)
-    # ==============================
+    # Overlay (3 px golden yellow), if present
     if overlay_gdf is not None and not overlay_gdf.empty:
-        og = overlay_gdf
-        if og.crs is None:
-            og = og.set_crs(4326)
-        else:
-            og = og.to_crs(4326)
-        for geom in og.geometry:
-            if geom.is_empty:
-                continue
-            pm = etree.SubElement(doc, "{%s}Placemark" % ns)
-            etree.SubElement(pm, "{%s}name" % ns).text = "Overlay"
-            etree.SubElement(pm, "{%s}description" % ns).text = "Invasive species mapped area"
-            etree.SubElement(pm, "{%s}styleUrl" % ns).text = "#overlayStyle"
-            poly_elem = etree.SubElement(pm, "{%s}Polygon" % ns)
-            _write_polygon_coords(ns, poly_elem, geom)
+        overlay_3857 = overlay_gdf.to_crs(3857)
+        overlay_3857.boundary.plot(ax=ax, color="#FFD700", linewidth=3, label="Overlay")
 
-    # ==============================
-    # ✅ RETURN FINAL XML STRING
-    # ==============================
-    return etree.tostring(kml, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode("utf-8")
+    # Esri satellite basemap (no attribution text baked into image)
+    # (Leave attribution default; do NOT pass unsupported params)
+    ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery)
+    ax.axis("off")
+    plt.tight_layout(pad=0.1)
+    fig.savefig(map_img_path, dpi=250, bbox_inches="tight")
+    plt.close(fig)
 
+    # 4) Place map at fixed box
+    pdf.image(map_img_path, x=MAP_X, y=MAP_Y, w=MAP_W, h=MAP_H)
+
+    # 5) Legend just below the map (2 columns)
+    legend_y = MAP_Y + MAP_H + LEGEND_GAP
+    pdf.set_y(legend_y)
+    pdf.set_fill_color(245, 245, 240)   # light panel
+    pdf.set_draw_color(180, 180, 180)
+    pdf.rect(MAP_X, legend_y, MAP_W, LEGEND_H, style="FD")
+
+    pdf.set_font("Helvetica", "", 11)
+    y_start = legend_y + 10
+    col1 = [
+        f"Range: {user_inputs.get('range_name','')}",
+        f"RF: {user_inputs.get('rf_name','')}",
+        f"Beat: {user_inputs.get('beat_name','')}",
+        f"Year of Work: {user_inputs.get('year_of_work','')}",
+    ]
+    col2 = [
+        f"Density: {density or ''}",
+        f"Area of Invasive: {area_invasive or ''} Ha",
+        f"Cell Size: {cell_size} m",
+        f"Overlay: {'Yes' if overlay_gdf is not None and not overlay_gdf.empty else 'No'}",
+    ]
+    for i in range(4):
+        pdf.text(MAP_X + 10, y_start + i * 6, col1[i])
+        pdf.text(MAP_X + 100, y_start + i * 6, col2[i])
+
+    # 6) Note line below legend (inside first page)
+    note_y = legend_y + LEGEND_H + NOTE_GAP
+    pdf.set_y(note_y)
+    pdf.set_font("Helvetica", "I", 9)
+    pdf.set_text_color(80, 80, 80)
+    pdf.multi_cell(
+        0, 5,
+        "Note: Satellite background and boundaries are automatically generated. "
+        "Developed by Rasipuram Range."
+    )
+    pdf.set_text_color(0, 0, 0)
+
+    # 7) Return as bytes (robust for all fpdf2 variants)
+    out = pdf.output(dest="S")
+    if isinstance(out, (bytes, bytearray)):
+        return bytes(out)
+    return str(out).encode("latin1", errors="ignore")
 # ================================================================
 # MAIN LOGIC
 # ================================================================
@@ -409,4 +404,5 @@ if st.session_state["generated"]:
         st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, then click ▶ Generate Grid.")
+
 
