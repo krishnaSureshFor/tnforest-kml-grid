@@ -17,6 +17,63 @@ from lxml import etree
 # ================================================================
 st.set_page_config(page_title="KML to Grid Generator v4.3", layout="wide")
 st.title("🗺️ KML to Grid Generator v4.3 (KMZ Supported)")
+# ================================================================
+# 🌿 CUSTOM PAGE STYLE — Forest Light Theme
+# ================================================================
+page_bg = """
+<style>
+/* Light yellow-green gradient background */
+.stApp {
+    background: linear-gradient(135deg, #f8f7d4 0%, #e3f5c3 50%, #d6f5d0 100%);
+}
+
+/* Sidebar styling */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #f4f7d7 0%, #d8f4cb 100%);
+    color: #203020;
+}
+
+/* Headings and labels */
+h1, h2, h3, h4 {
+    color: #2b4a20;
+}
+
+/* Buttons */
+div.stButton > button {
+    background: linear-gradient(90deg, #a7e08a, #7ad975);
+    color: black;
+    font-weight: 600;
+    border-radius: 10px;
+    border: none;
+    box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+}
+div.stButton > button:hover {
+    background: linear-gradient(90deg, #97d075, #69c55f);
+    color: white;
+}
+
+/* Input boxes and number fields */
+input, textarea {
+    background-color: #f8ffe8 !important;
+    border: 1px solid #b2d6a3 !important;
+    color: #203020 !important;
+}
+
+/* Download buttons */
+.stDownloadButton > button {
+    background: linear-gradient(90deg, #ffe98a, #f7d45f);
+    color: #2f2f2f;
+    border-radius: 10px;
+    border: none;
+    font-weight: 600;
+}
+.stDownloadButton > button:hover {
+    background: linear-gradient(90deg, #f7d45f, #f2b84a);
+    color: #000;
+}
+</style>
+"""
+st.markdown(page_bg, unsafe_allow_html=True)
 
 # ================================================================
 # STATE INIT
@@ -477,6 +534,7 @@ if st.session_state["generated"]:
             st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, add labels, then click ▶ Generate Grid.")
+
 
 
 
