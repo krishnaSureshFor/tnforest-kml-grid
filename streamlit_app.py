@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import contextily as ctx
 import tempfile
 from shapely.geometry import Polygon, MultiPolygon
+import zipfile
 
 # ================================================================
 # BASIC SETUP
@@ -381,15 +382,32 @@ if st.session_state["generated"]:
     bounds, overlay_gdf = None, None
     cells_ll, merged_ll = [], None
 
-    if uploaded_aoi is not None:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".kml") as tmp:
-            tmp.write(uploaded_aoi.read())
-            tmp_path = tmp.name
-        gdf = gpd.read_file(tmp_path, driver="KML")
-        polygons = gdf.geometry
-        cells_ll, merged_ll = make_grid_exact_clipped(polygons, cell_size)
-        aoi_union = unary_union(polygons)
+if uploaded_aoi is not None:
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp.write(uploaded_aoi.read())
+        tmp_path = tmp.name
 
+    # Handle .kmz (compressed KML)
+    if uploaded_aoi.name.lower().endswith(".kmz"):
+        with zipfile.ZipFile(tmp_path, "r") as z:
+            kml_files = [f for f in z.namelist() if f.endswith(".kml")]
+            if not kml_files:
+                st.error("❌ No .kml file found inside the uploaded KMZ.")
+                st.stop()
+            extracted_kml_path = os.path.join(tempfile.gettempdir(), "extracted_aoi.kml")
+            with open(extracted_kml_path, "wb") as f:
+                f.write(z.read(kml_files[0]))
+        tmp_path = extracted_kml_path  # now a real KML file path
+
+    try:
+        gdf = gpd.read_file(tmp_path, driver="KML")
+    except Exception as e:
+        st.error(f"⚠️ Error reading AOI file: {e}")
+        st.stop()
+
+    polygons = gdf.geometry
+    cells_ll, merged_ll = make_grid_exact_clipped(polygons, cell_size)
+    aoi_union = unary_union(polygons)
         folium.GeoJson(mapping(aoi_union),
                        name="AOI", style_function=lambda x: {"color": "red", "weight": 3, "fillOpacity": 0}).add_to(m)
         for cell in cells_ll:
@@ -399,11 +417,28 @@ if st.session_state["generated"]:
         minx, miny, maxx, maxy = aoi_union.bounds
         bounds = [[miny, minx], [maxy, maxx]]
 
-    if overlay_file is not None:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".kml") as tmp2:
-            tmp2.write(overlay_file.read())
-            tmp2_path = tmp2.name
+if overlay_file is not None:
+    with tempfile.NamedTemporaryFile(delete=False) as tmp2:
+        tmp2.write(overlay_file.read())
+        tmp2_path = tmp2.name
+
+    # Handle .kmz (compressed KML)
+    if overlay_file.name.lower().endswith(".kmz"):
+        with zipfile.ZipFile(tmp2_path, "r") as z:
+            kml_files = [f for f in z.namelist() if f.endswith(".kml")]
+            if not kml_files:
+                st.error("❌ No .kml file found inside the uploaded KMZ overlay.")
+                st.stop()
+            extracted_overlay_path = os.path.join(tempfile.gettempdir(), "extracted_overlay.kml")
+            with open(extracted_overlay_path, "wb") as f:
+                f.write(z.read(kml_files[0]))
+        tmp2_path = extracted_overlay_path
+
+    try:
         overlay_gdf = gpd.read_file(tmp2_path, driver="KML")
+    except Exception as e:
+        st.error(f"⚠️ Error reading overlay file: {e}")
+        st.stop()
         if overlay_gdf.crs is None:
             overlay_gdf = overlay_gdf.set_crs(4326)
         else:
@@ -446,6 +481,7 @@ if st.session_state["generated"]:
                                    mime="application/pdf")
 else:
     st.info("👆 Upload AOI, add labels, then click ▶ Generate Grid.")
+
 
 
 
