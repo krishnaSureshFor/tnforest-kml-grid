@@ -223,25 +223,122 @@ def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
 # ================================================================
 # PDF REPORT FUNCTION
 # ================================================================
-def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overlay_gdf, title_text, density, area_invasive):
-    pdf = FPDF("P", "mm", "A4")
-    pdf.add_page()
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.cell(0, 10, "FOREST DEPARTMENT", ln=1, align="C")
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, title_text, ln=1, align="C")
-    pdf.ln(5)
-    pdf.set_font("Helvetica", "", 11)
-    pdf.cell(0, 6, f"Range: {user_inputs['range_name']}  |  Beat: {user_inputs['beat_name']}", ln=1)
-    pdf.cell(0, 6, f"RF: {user_inputs['rf_name']}  |  Year: {user_inputs['year_of_work']}", ln=1)
-    pdf.cell(0, 6, f"Density: {density}  |  Area of Invasive: {area_invasive} Ha", ln=1)
-    pdf.cell(0, 6, f"Cell Size: {cell_size} m", ln=1)
-    pdf.ln(6)
-    pdf.set_font("Helvetica", "I", 9)
-    pdf.multi_cell(0, 5, "Note: Satellite background and boundaries are auto-generated. Developed by Rasipuram Range.")
-    pdf_output = io.BytesIO()
-    pdf.output(pdf_output)
-    return pdf_output.getvalue()
+def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
+    """
+    Generate labeled + overlay KML.
+    Adds:
+      ✅ Document description
+      ✅ Balloon popups for each grid
+      ✅ Accurate grid area (ha)
+    """
+    ns = "http://www.opengis.net/kml/2.2"
+    kml = etree.Element("{%s}kml" % ns)
+    doc = etree.SubElement(kml, "{%s}Document" % ns)
+    etree.SubElement(doc, "{%s}name" % ns).text = "Labeled Grid + Overlay"
+    etree.SubElement(doc, "{%s}description" % ns).text = (
+        "This KML file contains generated grid cells and overlay polygons for "
+        "forest invasive monitoring.\n"
+        "Developed by Rasipuram Range, Tamil Nadu Forest Department."
+    )
+
+    # ==============================
+    # 🟥 GRID STYLE (Red 1px)
+    # ==============================
+    style_grid = etree.SubElement(doc, "{%s}Style" % ns, id="gridStyle")
+    ls1 = etree.SubElement(style_grid, "{%s}LineStyle" % ns)
+    etree.SubElement(ls1, "{%s}color" % ns).text = "ff0000ff"  # red (ABGR)
+    etree.SubElement(ls1, "{%s}width" % ns).text = "1"
+    ps1 = etree.SubElement(style_grid, "{%s}PolyStyle" % ns)
+    etree.SubElement(ps1, "{%s}fill" % ns).text = "0"
+
+    # ✅ Balloon Style Template (uses $[name] for grid ID)
+    balloon = etree.SubElement(style_grid, "{%s}BalloonStyle" % ns)
+    etree.SubElement(balloon, "{%s}text" % ns).text = (
+        "<![CDATA[<b>Grid ID:</b> $[name]<br>"
+        "<b>Range:</b> %s<br>"
+        "<b>RF:</b> %s<br>"
+        "<b>Beat:</b> %s<br>"
+        "<b>Year:</b> %s<br>"
+        "<b>Area:</b> $[area_ha] ha<br>"
+        "<hr><i>Developed by Rasipuram Range</i>]]>" % (
+            user_inputs.get("range_name", ""),
+            user_inputs.get("rf_name", ""),
+            user_inputs.get("beat_name", ""),
+            user_inputs.get("year_of_work", "")
+        )
+    )
+
+    # ==============================
+    # 🟥 AOI STYLE (3px Red)
+    # ==============================
+    style_aoi = etree.SubElement(doc, "{%s}Style" % ns, id="aoiStyle")
+    ls_aoi = etree.SubElement(style_aoi, "{%s}LineStyle" % ns)
+    etree.SubElement(ls_aoi, "{%s}color" % ns).text = "ff0000ff"
+    etree.SubElement(ls_aoi, "{%s}width" % ns).text = "3"
+    ps_aoi = etree.SubElement(style_aoi, "{%s}PolyStyle" % ns)
+    etree.SubElement(ps_aoi, "{%s}fill" % ns).text = "0"
+
+    # ==============================
+    # 🟨 OVERLAY STYLE (Golden 3px)
+    # ==============================
+    style_overlay = etree.SubElement(doc, "{%s}Style" % ns, id="overlayStyle")
+    ls2 = etree.SubElement(style_overlay, "{%s}LineStyle" % ns)
+    etree.SubElement(ls2, "{%s}color" % ns).text = "ff00d7ff"  # golden yellow
+    etree.SubElement(ls2, "{%s}width" % ns).text = "3"
+    ps2 = etree.SubElement(style_overlay, "{%s}PolyStyle" % ns)
+    etree.SubElement(ps2, "{%s}fill" % ns).text = "0"
+
+    # ==============================
+    # 🧱 ADD GRID CELLS
+    # ==============================
+    for i, cell in enumerate(cells_ll, start=1):
+        # --- compute area in hectares accurately ---
+        centroid = cell.centroid
+        utm_crs = utm_crs_for_lonlat(centroid.x, centroid.y)
+        area_ha = gpd.GeoSeries([cell], crs=4326).to_crs(utm_crs).area.iloc[0] / 10000.0
+
+        pm = etree.SubElement(doc, "{%s}Placemark" % ns)
+        etree.SubElement(pm, "{%s}name" % ns).text = f"{i}"
+        etree.SubElement(pm, "{%s}styleUrl" % ns).text = "#gridStyle"
+
+        # --- description includes human-readable data ---
+        etree.SubElement(pm, "{%s}description" % ns).text = (
+            f"Grid cell {i} — {user_inputs.get('beat_name','')} beat, "
+            f"Area: {area_ha:.2f} ha"
+        )
+
+        # --- add ExtendedData for use in BalloonStyle ---
+        ext_data = etree.SubElement(pm, "{%s}ExtendedData" % ns)
+        data_tag = etree.SubElement(ext_data, "{%s}Data" % ns, name="area_ha")
+        etree.SubElement(data_tag, "{%s}value" % ns).text = f"{area_ha:.2f}"
+
+        # --- geometry ---
+        poly_elem = etree.SubElement(pm, "{%s}Polygon" % ns)
+        _write_polygon_coords(ns, poly_elem, cell)
+
+    # ==============================
+    # 🟨 ADD OVERLAY (if any)
+    # ==============================
+    if overlay_gdf is not None and not overlay_gdf.empty:
+        og = overlay_gdf
+        if og.crs is None:
+            og = og.set_crs(4326)
+        else:
+            og = og.to_crs(4326)
+        for geom in og.geometry:
+            if geom.is_empty:
+                continue
+            pm = etree.SubElement(doc, "{%s}Placemark" % ns)
+            etree.SubElement(pm, "{%s}name" % ns).text = "Overlay"
+            etree.SubElement(pm, "{%s}description" % ns).text = "Invasive species mapped area"
+            etree.SubElement(pm, "{%s}styleUrl" % ns).text = "#overlayStyle"
+            poly_elem = etree.SubElement(pm, "{%s}Polygon" % ns)
+            _write_polygon_coords(ns, poly_elem, geom)
+
+    # ==============================
+    # ✅ RETURN FINAL XML STRING
+    # ==============================
+    return etree.tostring(kml, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode("utf-8")
 
 # ================================================================
 # MAIN LOGIC
@@ -312,3 +409,4 @@ if st.session_state["generated"]:
         st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, then click ▶ Generate Grid.")
+
