@@ -133,59 +133,136 @@ def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
 # PDF GENERATOR (from your final version)
 # ================================================================
 def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overlay_gdf, title_text, density, area_invasive):
+    from shapely.geometry import Polygon, MultiPolygon
     pdf = FPDF("P", "mm", "A4")
     pdf.set_auto_page_break(auto=True, margin=15)
     EMBLEM_PATH = os.path.join(os.path.dirname(__file__), "tn_emblem.png")
+
+    # ---------------- Header ----------------
     def header_section():
         if os.path.exists(EMBLEM_PATH):
             pdf.image(EMBLEM_PATH, x=93, y=8, w=25)
         pdf.set_y(35)
         pdf.set_font("Helvetica", "B", 16)
         pdf.cell(0, 10, "FOREST DEPARTMENT", align="C", ln=1)
+
+    # ---------------- Page 1 (Map + Legend) ----------------
     pdf.add_page()
     header_section()
+    pdf.ln(2)
     pdf.set_font("Helvetica", "B", 13)
     pdf.cell(0, 10, title_text, align="C", ln=1)
+
+    # ---- Generate Map ----
     tmp_dir = tempfile.gettempdir()
     map_img_path = os.path.join(tmp_dir, "map_overlay.png")
-    fig, ax = plt.subplots(figsize=(6.8, 5))
+
+    # Generate and save map image
+    fig, ax = plt.subplots(figsize=(7, 5.8))  # fixed physical size for consistent output
     ax.set_facecolor("white")
+
     merged_gdf = gpd.GeoSeries([merged_ll], crs="EPSG:4326").to_crs(3857)
     grid_gdf = gpd.GeoSeries(cells_ll, crs="EPSG:4326").to_crs(3857)
-    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3)
-    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1)
+    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3, label="AOI")
+    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1, label="Grid")
+
     if overlay_gdf is not None and not overlay_gdf.empty:
         overlay_gdf = overlay_gdf.to_crs(3857)
-        overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3)
+        overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3, label="Overlay")
+
     ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery, zoom=14)
     ax.axis("off")
     plt.tight_layout(pad=0.1)
     fig.savefig(map_img_path, dpi=250, bbox_inches="tight")
     plt.close(fig)
-    pdf.image(map_img_path, x=15, y=55, w=180)
-    pdf.set_y(205)
+
+    # ---- Insert Map ----
+    # Fixed position + fixed height (3/4 page)
+    pdf.image(map_img_path, x=15, y=55, w=180, h=145)
+
+    # ---- Legend below map ----
+    legend_y = 55 + 145 + 8  # 8mm gap below map
+    pdf.set_y(legend_y)
     pdf.set_fill_color(245, 245, 240)
-    pdf.rect(15, pdf.get_y(), 180, 40, style="FD")
-    legend_y = pdf.get_y()
+    pdf.set_draw_color(180, 180, 180)
+    pdf.rect(15, legend_y, 180, 40, style="FD")
+
     pdf.set_font("Helvetica", "", 11)
     y_start = legend_y + 10
-    col1 = [f"Range: {user_inputs.get('range_name','')}",
-            f"RF: {user_inputs.get('rf_name','')}",
-            f"Beat: {user_inputs.get('beat_name','')}",
-            f"Year of Work: {user_inputs.get('year_of_work','')}"]
-    col2 = [f"Density: {density}",
-            f"Area of Invasive: {area_invasive} Ha",
-            f"Cell Size: {cell_size} m",
-            f"Overlay: {'Yes' if overlay_gdf is not None and not overlay_gdf.empty else 'No'}"]
+    col1 = [
+        f"Range: {user_inputs.get('range_name','')}",
+        f"RF: {user_inputs.get('rf_name','')}",
+        f"Beat: {user_inputs.get('beat_name','')}",
+        f"Year of Work: {user_inputs.get('year_of_work','')}",
+    ]
+    col2 = [
+        f"Density: {density}",
+        f"Area of Invasive: {area_invasive} Ha",
+        f"Cell Size: {cell_size} m",
+        f"Overlay: {'Yes' if overlay_gdf is not None and not overlay_gdf.empty else 'No'}",
+    ]
+
     for i in range(4):
         pdf.text(25, y_start + i * 6, col1[i])
         pdf.text(115, y_start + i * 6, col2[i])
-    pdf.set_y(legend_y + 47)
-    pdf.set_font("Helvetica", "I", 9)
-    pdf.multi_cell(0, 5, "Note: Satellite background and boundaries are automatically generated. Developed by Rasipuram Range.")
-    result = pdf.output(dest="S")
-    return bytes(result) if isinstance(result, bytearray) else result.encode("latin1", errors="ignore")
 
+    # ---- Note below legend ----
+    note_y = legend_y + 45
+    pdf.set_y(note_y)
+    pdf.set_font("Helvetica", "I", 9)
+    pdf.set_text_color(80, 80, 80)
+    pdf.multi_cell(0, 5, "Note: Satellite background and boundaries are automatically generated. Developed by Rasipuram Range.")
+    pdf.set_text_color(0, 0, 0)
+
+    # ---------------- Page 2 (Corner GPS Table) ----------------
+    pdf.add_page()
+    header_section()
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 10, "Corner GPS of Overlay Area", ln=1, align="C")
+
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(25, 8, "S.No", 1, align="C")
+    pdf.cell(75, 8, "Latitude", 1, align="C")
+    pdf.cell(75, 8, "Longitude", 1, align="C")
+    pdf.ln(8)
+    pdf.set_font("Helvetica", "", 10)
+
+    row_no = 1
+    if overlay_gdf is not None and not overlay_gdf.empty:
+        overlay = overlay_gdf.to_crs(4326)
+        for geom in overlay.geometry:
+            if geom.is_empty:
+                continue
+            coords = []
+            if geom.geom_type == "Polygon":
+                coords = list(geom.exterior.coords)
+            elif geom.geom_type == "MultiPolygon":
+                for part in geom.geoms:
+                    coords.extend(list(part.exterior.coords))
+            for lon, lat, *_ in coords:
+                pdf.cell(25, 7, str(row_no), 1)
+                pdf.cell(75, 7, f"{lat:.6f}", 1, align="R")
+                pdf.cell(75, 7, f"{lon:.6f}", 1, align="R")
+                pdf.ln(7)
+                row_no += 1
+                if pdf.get_y() > 265:
+                    pdf.add_page()
+                    header_section()
+                    pdf.ln(2)
+                    pdf.set_font("Helvetica", "B", 11)
+                    pdf.cell(25, 8, "S.No", 1, align="C")
+                    pdf.cell(75, 8, "Latitude", 1, align="C")
+                    pdf.cell(75, 8, "Longitude", 1, align="C")
+                    pdf.ln(8)
+                    pdf.set_font("Helvetica", "", 10)
+    else:
+        pdf.cell(0, 8, "No overlay polygons detected.", 1, align="C")
+
+    result = pdf.output(dest="S")
+    if isinstance(result, bytearray):
+        return bytes(result)
+    return result.encode("latin1", errors="ignore")
 # ================================================================
 # SIDEBAR UI
 # ================================================================
@@ -289,3 +366,4 @@ if st.session_state["generated"]:
             st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, add labels, then click ▶ Generate Grid.")
+
