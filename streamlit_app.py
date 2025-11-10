@@ -74,25 +74,25 @@ box-shadow:0 4px 10px rgba(0,0,0,0.25); letter-spacing:1px;'>
 st.sidebar.header("⚙️ Tool Settings")
 
 with st.sidebar.expander("📂 Upload Files (AOI / Overlay)", expanded=True):
-    uploaded_aoi = st.file_uploader("Upload AOI KML/KMZ", type=["kml", "kmz"])
-    overlay_file = st.file_uploader("Optional Overlay KML/KMZ", type=["kml", "kmz"])
+    uploaded_aoi = st.file_uploader("Upload AOI KML/KMZ", type=["kml", "kmz"], key="aoi_uploader")
+    overlay_file = st.file_uploader("Optional Overlay KML/KMZ", type=["kml", "kmz"], key="overlay_uploader")
 
 with st.sidebar.expander("🌲 KML Label Details"):
-    range_name = st.text_input("Range Name", "Thammampatti")
-    rf_name = st.text_input("RF Name", "Karumalai")
-    beat_name = st.text_input("Beat Name", "A1")
-    year_of_work = st.text_input("Year of Work", "2024")
+    range_name = st.text_input("Range Name", "Thammampatti", key="range_name")
+    rf_name = st.text_input("RF Name", "Karumalai", key="rf_name")
+    beat_name = st.text_input("Beat Name", "A1", key="beat_name")
+    year_of_work = st.text_input("Year of Work", "2024", key="year_of_work")
 
 with st.sidebar.expander("📄 PDF Report Details"):
-    title_text = st.text_input("Report Title", "Removal of Invasive Species, Thammampatti Range")
-    density = st.text_input("Density", "Medium")
-    area_invasive = st.text_input("Area of Invasive (Ha)", "5")
-    cell_size = st.number_input("Grid Cell Size (m)", 10, 2000, 100, 10)
-    generate_pdf = st.checkbox("Generate PDF Report", value=True)
+    title_text = st.text_input("Report Title", "Removal of Invasive Species, Thammampatti Range", key="title_text")
+    density = st.text_input("Density", "Medium", key="density")
+    area_invasive = st.text_input("Area of Invasive (Ha)", "5", key="area_invasive")
+    cell_size = st.number_input("Grid Cell Size (m)", 10, 2000, 100, 10, key="cell_size")
+    generate_pdf = st.checkbox("Generate PDF Report", value=True, key="generate_pdf")
 
 col1, col2 = st.sidebar.columns(2)
-with col1: generate_click = st.button("▶ Generate Grid")
-with col2: reset_click = st.button("🔄 Reset Map")
+with col1: generate_click = st.button("▶ Generate Grid", key="btn_generate")
+with col2: reset_click = st.button("🔄 Reset Map", key="btn_reset")
 
 # ================================================================
 # STATE
@@ -105,6 +105,7 @@ def init_state():
         }
     if "generated" not in st.session_state:
         st.session_state["generated"] = False
+
 init_state()
 
 if reset_click:
@@ -112,12 +113,17 @@ if reset_click:
     init_state()
     st.rerun()
 if generate_click:
+    st.session_state["user_inputs"] = {
+        "range_name": range_name, "rf_name": rf_name,
+        "beat_name": beat_name, "year_of_work": year_of_work
+    }
     st.session_state["generated"] = True
 
 # ================================================================
 # HELPERS
 # ================================================================
 def read_kml_safely(path):
+    """Robustly read KML using Fiona fallback."""
     try:
         return gpd.read_file(path, driver="KML")
     except Exception:
@@ -137,17 +143,19 @@ def make_grid_exact_clipped(polygons_ll, cell_size_m=100):
     minx, miny, maxx, maxy = merged_utm.total_bounds
     cols, rows = int(math.ceil((maxx - minx) / cell_size_m)), int(math.ceil((maxy - miny) / cell_size_m))
     cells = []
+    aoi_union = merged_utm.unary_union
     for i in range(cols):
         for j in range(rows):
             x0, y0 = minx + i * cell_size_m, miny + j * cell_size_m
             cell = box(x0, y0, x0 + cell_size_m, y0 + cell_size_m)
-            inter = cell.intersection(merged_utm.unary_union)
+            inter = cell.intersection(aoi_union)
             if not inter.is_empty:
                 cells.append(inter)
-    return [gpd.GeoSeries([c], crs=utm).to_crs(4326).iloc[0] for c in cells], merged_ll
+    cells_ll = [gpd.GeoSeries([c], crs=utm).to_crs(4326).iloc[0] for c in cells]
+    return cells_ll, merged_ll
 
 # ================================================================
-# KML GENERATORS
+# KML GENERATORS (with Description + Balloon Popups)
 # ================================================================
 def _ring_coords_to_kml(ring):
     return " ".join(f"{pt[0]},{pt[1]},0" for pt in ring.coords if len(pt) >= 2)
@@ -164,62 +172,47 @@ def _write_polygon_coords(ns, parent_polygon_elem, geom):
             poly_elem = etree.SubElement(parent_polygon_elem.getparent(), "{%s}Polygon" % ns)
             write_one(part)
 
-# ================================================================
-# ENHANCED KML GENERATORS — with Description + Balloon Popups
-# ================================================================
-
-# ================================================================
-# FINAL STABLE KML GENERATORS — With Popup Labels (Both Files)
-# ================================================================
+def _make_grid_balloon_text(user_inputs):
+    return (
+        "<![CDATA["
+        "<b>Grid ID:</b> $[name]<br>"
+        f"<b>Range:</b> {user_inputs['range_name']}<br>"
+        f"<b>RF/RL:</b> {user_inputs['rf_name']}<br>"
+        f"<b>Beat:</b> {user_inputs['beat_name']}<br>"
+        f"<b>Year:</b> {user_inputs['year_of_work']}<br>"
+        "<b>Area (Ha):</b> $[area_ha]<br>"
+        "<hr><i>Developed by Krishna, Thammampatti Range</i>"
+        "]]>"
+    )
 
 def generate_grid_only_kml(cells_ll, merged_ll, user_inputs):
-    """Generates Grid-Only KML (with popups) without overlay."""
+    """Grid-only KML with same popup label as merged (no overlay)."""
     ns = "http://www.opengis.net/kml/2.2"
     kml = etree.Element("{%s}kml" % ns)
     doc = etree.SubElement(kml, "{%s}Document" % ns)
 
-    # Metadata
     etree.SubElement(doc, "{%s}name" % ns).text = "Grid Only"
     etree.SubElement(doc, "{%s}description" % ns).text = (
-        "Grid-only version generated by Forest Department — "
+        "Grid-only file with labeled cells for field use. "
         "Developed by Krishna (Thammampatti Range)."
     )
 
-    # Grid Style (Red thin, popup enabled)
     style_grid = etree.SubElement(doc, "{%s}Style" % ns, id="gridStyle")
     ls1 = etree.SubElement(style_grid, "{%s}LineStyle" % ns)
-    etree.SubElement(ls1, "{%s}color" % ns).text = "ff0000ff"  # Red
+    etree.SubElement(ls1, "{%s}color" % ns).text = "ff0000ff"  # red
     etree.SubElement(ls1, "{%s}width" % ns).text = "1"
     ps1 = etree.SubElement(style_grid, "{%s}PolyStyle" % ns)
     etree.SubElement(ps1, "{%s}fill" % ns).text = "0"
-
-    # Balloon Popup Style
     balloon = etree.SubElement(style_grid, "{%s}BalloonStyle" % ns)
-    etree.SubElement(balloon, "{%s}text" % ns).text = (
-        "<![CDATA["
-        "<b>Grid ID:</b> $[name]<br>"
-        "<b>Range:</b> %s<br>"
-        "<b>RF/RL:</b> %s<br>"
-        "<b>Beat:</b> %s<br>"
-        "<b>Year:</b> %s<br>"
-        "<b>Area (Ha):</b> $[area_ha]<br>"
-        "<hr><i>Developed by Krishna, Thammampatti Range</i>"
-        "]]>" % (
-            user_inputs["range_name"],
-            user_inputs["rf_name"],
-            user_inputs["beat_name"],
-            user_inputs["year_of_work"],
-        )
-    )
+    etree.SubElement(balloon, "{%s}text" % ns).text = _make_grid_balloon_text(user_inputs)
 
-    # Create Grid Placemarks (with popup info)
     for i, cell in enumerate(cells_ll, 1):
         centroid = cell.centroid
         utm_crs = utm_crs_for_lonlat(centroid.x, centroid.y)
         area_ha = gpd.GeoSeries([cell], crs=4326).to_crs(utm_crs).area.iloc[0] / 10000.0
 
         pm = etree.SubElement(doc, "{%s}Placemark" % ns)
-        etree.SubElement(pm, "{%s}name" % ns).text = f"{i}"
+        etree.SubElement(pm, "{%s}name" % ns).text = str(i)
         etree.SubElement(pm, "{%s}styleUrl" % ns).text = "#gridStyle"
 
         ext_data = etree.SubElement(pm, "{%s}ExtendedData" % ns)
@@ -234,63 +227,44 @@ def generate_grid_only_kml(cells_ll, merged_ll, user_inputs):
 
     return etree.tostring(kml, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode("utf-8")
 
-
 def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
-    """Generates Labeled + Overlay KML (with popups + golden overlay)."""
+    """Labeled grid + overlay (gold) with popups and description."""
     ns = "http://www.opengis.net/kml/2.2"
     kml = etree.Element("{%s}kml" % ns)
     doc = etree.SubElement(kml, "{%s}Document" % ns)
 
-    # Metadata
     etree.SubElement(doc, "{%s}name" % ns).text = "Labeled Grid + Overlay"
     etree.SubElement(doc, "{%s}description" % ns).text = (
-        "Labeled grid with overlay boundary generated by Forest Department — "
+        "Labeled grid with overlay boundary. "
         "Developed by Krishna (Thammampatti Range)."
     )
 
-    # Grid Style (same as grid-only)
+    # Grid style
     style_grid = etree.SubElement(doc, "{%s}Style" % ns, id="gridStyle")
     ls1 = etree.SubElement(style_grid, "{%s}LineStyle" % ns)
-    etree.SubElement(ls1, "{%s}color" % ns).text = "ff0000ff"  # Red
+    etree.SubElement(ls1, "{%s}color" % ns).text = "ff0000ff"  # red
     etree.SubElement(ls1, "{%s}width" % ns).text = "1"
     ps1 = etree.SubElement(style_grid, "{%s}PolyStyle" % ns)
     etree.SubElement(ps1, "{%s}fill" % ns).text = "0"
-
-    # Balloon Popup Style
     balloon = etree.SubElement(style_grid, "{%s}BalloonStyle" % ns)
-    etree.SubElement(balloon, "{%s}text" % ns).text = (
-        "<![CDATA["
-        "<b>Grid ID:</b> $[name]<br>"
-        "<b>Range:</b> %s<br>"
-        "<b>RF/RL:</b> %s<br>"
-        "<b>Beat:</b> %s<br>"
-        "<b>Year:</b> %s<br>"
-        "<b>Area (Ha):</b> $[area_ha]<br>"
-        "<hr><i>Developed by Krishna, Thammampatti Range</i>"
-        "]]>" % (
-            user_inputs["range_name"],
-            user_inputs["rf_name"],
-            user_inputs["beat_name"],
-            user_inputs["year_of_work"],
-        )
-    )
+    etree.SubElement(balloon, "{%s}text" % ns).text = _make_grid_balloon_text(user_inputs)
 
-    # Overlay style (Golden Yellow thick)
+    # Overlay style (golden yellow 3px)
     style_overlay = etree.SubElement(doc, "{%s}Style" % ns, id="overlayStyle")
     ls2 = etree.SubElement(style_overlay, "{%s}LineStyle" % ns)
-    etree.SubElement(ls2, "{%s}color" % ns).text = "ff00d7ff"  # #FFD700
+    etree.SubElement(ls2, "{%s}color" % ns).text = "ff00d7ff"  # ABGR for #FFD700
     etree.SubElement(ls2, "{%s}width" % ns).text = "3"
     ps2 = etree.SubElement(style_overlay, "{%s}PolyStyle" % ns)
     etree.SubElement(ps2, "{%s}fill" % ns).text = "0"
 
-    # Create Grid Placemarks (with balloon)
+    # Grid placemarks
     for i, cell in enumerate(cells_ll, 1):
         centroid = cell.centroid
         utm_crs = utm_crs_for_lonlat(centroid.x, centroid.y)
         area_ha = gpd.GeoSeries([cell], crs=4326).to_crs(utm_crs).area.iloc[0] / 10000.0
 
         pm = etree.SubElement(doc, "{%s}Placemark" % ns)
-        etree.SubElement(pm, "{%s}name" % ns).text = f"{i}"
+        etree.SubElement(pm, "{%s}name" % ns).text = str(i)
         etree.SubElement(pm, "{%s}styleUrl" % ns).text = "#gridStyle"
 
         ext_data = etree.SubElement(pm, "{%s}ExtendedData" % ns)
@@ -303,7 +277,7 @@ def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
         poly = etree.SubElement(pm, "{%s}Polygon" % ns)
         _write_polygon_coords(ns, poly, cell)
 
-    # Add Overlay (golden)
+    # Overlay boundary
     if overlay_gdf is not None and not overlay_gdf.empty:
         og = overlay_gdf.to_crs(4326)
         for geom in og.geometry:
@@ -318,9 +292,12 @@ def generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf=None):
     return etree.tostring(kml, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode("utf-8")
 
 # ================================================================
-# ✅ FINAL FIXED PDF FUNCTION (with correct footer)
+# PDF REPORT FUNCTION (stable layout + correct footer)
 # ================================================================
-def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overlay_gdf, title_text, density, area_invasive):
+def build_pdf_report_standard(
+    cells_ll, merged_ll, user_inputs, cell_size,
+    overlay_gdf, title_text, density, area_invasive
+):
     import geopandas as gpd, matplotlib.pyplot as plt, contextily as ctx, tempfile, os
     from fpdf import FPDF
 
@@ -337,7 +314,7 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
     pdf = PDF("P", "mm", "A4")
     pdf.set_auto_page_break(auto=True, margin=15)
 
-    # Header
+    # Page 1 — Header
     pdf.add_page()
     if os.path.exists(EMBLEM_PATH):
         pdf.image(EMBLEM_PATH, x=93, y=8, w=25)
@@ -353,11 +330,11 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
     fig, ax = plt.subplots(figsize=(7, 5.8))
     merged_gdf = gpd.GeoSeries([merged_ll], crs="EPSG:4326").to_crs(3857)
     grid_gdf = gpd.GeoSeries(cells_ll, crs="EPSG:4326").to_crs(3857)
-    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3)
-    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1)
+    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3)            # AOI 3px red
+    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1)              # Grid 1px red
     if overlay_gdf is not None and not overlay_gdf.empty:
-        overlay_gdf.to_crs(3857).boundary.plot(ax=ax, color="#FFD700", linewidth=3)
-    ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery)
+        overlay_gdf.to_crs(3857).boundary.plot(ax=ax, color="#FFD700", linewidth=3)  # Overlay gold 3px
+    ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery)  # do not pass attribution kw
     ax.axis("off"); plt.tight_layout(pad=0.1)
     fig.savefig(map_img, dpi=250, bbox_inches="tight"); plt.close(fig)
     pdf.image(map_img, x=MAP_X, y=MAP_Y, w=MAP_W, h=MAP_H)
@@ -365,98 +342,130 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
     # Legend
     legend_y = MAP_Y + MAP_H + LEGEND_GAP
     pdf.set_y(legend_y)
-    pdf.set_fill_color(245,245,240); pdf.set_draw_color(180,180,180)
+    pdf.set_fill_color(245, 245, 240); pdf.set_draw_color(180, 180, 180)
     pdf.rect(MAP_X, legend_y, MAP_W, 40, style="FD")
     pdf.set_font("Helvetica", "", 11)
-    col1 = [f"Range: {user_inputs['range_name']}", f"RF: {user_inputs['rf_name']}",
-            f"Beat: {user_inputs['beat_name']}", f"Year: {user_inputs['year_of_work']}"]
-    col2 = [f"Density: {density}", f"Area of Invasive: {area_invasive} Ha",
-            f"Cell Size: {cell_size} m", f"Overlay: {'Yes' if overlay_gdf is not None and not overlay_gdf.empty else 'No'}"]
+    col1 = [
+        f"Range: {user_inputs['range_name']}",
+        f"RF: {user_inputs['rf_name']}",
+        f"Beat: {user_inputs['beat_name']}",
+        f"Year: {user_inputs['year_of_work']}",
+    ]
+    col2 = [
+        f"Density: {density}",
+        f"Area of Invasive: {area_invasive} Ha",
+        f"Cell Size: {cell_size} m",
+        f"Overlay: {'Yes' if overlay_gdf is not None and not overlay_gdf.empty else 'No'}",
+    ]
     for i in range(4):
-        pdf.text(MAP_X+10, legend_y+10+i*6, col1[i])
-        pdf.text(MAP_X+100, legend_y+10+i*6, col2[i])
+        pdf.text(MAP_X + 10, legend_y + 10 + i * 6, col1[i])
+        pdf.text(MAP_X + 100, legend_y + 10 + i * 6, col2[i])
 
     # Note
-    pdf.set_y(legend_y+47)
-    pdf.set_font("Helvetica", "I", 9); pdf.set_text_color(80,80,80)
-    pdf.multi_cell(0,5,"Note: Satellite background (Esri) and boundaries are automatically generated. Developed by Rasipuram Range.")
-    pdf.set_text_color(0,0,0)
+    pdf.set_y(legend_y + 47)
+    pdf.set_font("Helvetica", "I", 9); pdf.set_text_color(80, 80, 80)
+    pdf.multi_cell(0, 5, "Note: Satellite background (Esri) and boundaries are automatically generated. Developed by Rasipuram Range.")
+    pdf.set_text_color(0, 0, 0)
 
-    # Page 2 — Coordinates
-    pdf.add_page()
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0,10,"Corner GPS of Overlay Area",ln=1,align="C")
-    pdf.set_font("Helvetica","B",11)
-    pdf.cell(25,8,"S.No",1,align="C")
-    pdf.cell(75,8,"Latitude",1,align="C")
-    pdf.cell(75,8,"Longitude",1,align="C"); pdf.ln(8)
-    pdf.set_font("Helvetica","",10)
-
-    row=1
+    # Page 2 — Corner GPS Table (only if overlay exists)
     if overlay_gdf is not None and not overlay_gdf.empty:
-        overlay=overlay_gdf.to_crs(4326)
-        for geom in overlay.geometry:
-            if geom.is_empty: continue
-            coords=list(geom.exterior.coords) if geom.geom_type=="Polygon" else []
-            if geom.geom_type=="MultiPolygon":
-                for part in geom.geoms: coords.extend(list(part.exterior.coords))
-            for lon,lat,*_ in coords:
-                pdf.cell(25,7,str(row),1); pdf.cell(75,7,f"{lat:.6f}",1,align="R"); pdf.cell(75,7,f"{lon:.6f}",1,align="R"); pdf.ln(7); row+=1
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 10, "Corner GPS of Overlay Area", ln=1, align="C")
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(25, 8, "S.No", 1, align="C")
+        pdf.cell(75, 8, "Latitude", 1, align="C")
+        pdf.cell(75, 8, "Longitude", 1, align="C"); pdf.ln(8)
+        pdf.set_font("Helvetica", "", 10)
 
-    return bytes(pdf.output(dest="S"))
+        row = 1
+        overlay = overlay_gdf.to_crs(4326)
+        for geom in overlay.geometry:
+            if geom.is_empty:
+                continue
+            coords = []
+            if geom.geom_type == "Polygon":
+                coords = list(geom.exterior.coords)
+            elif geom.geom_type == "MultiPolygon":
+                for part in geom.geoms:
+                    coords.extend(list(part.exterior.coords))
+            for lon, lat, *_ in coords:
+                pdf.cell(25, 7, str(row), 1)
+                pdf.cell(75, 7, f"{lat:.6f}", 1, align="R")
+                pdf.cell(75, 7, f"{lon:.6f}", 1, align="R")
+                pdf.ln(7)
+                row += 1
+                if pdf.get_y() > 265:
+                    pdf.add_page()
+                    pdf.set_font("Helvetica", "B", 11)
+                    pdf.cell(25, 8, "S.No", 1, align="C")
+                    pdf.cell(75, 8, "Latitude", 1, align="C")
+                    pdf.cell(75, 8, "Longitude", 1, align="C")
+                    pdf.ln(8)
+                    pdf.set_font("Helvetica", "", 10)
+
+    # Output bytes
+    result = pdf.output(dest="S")
+    return bytes(result) if isinstance(result, (bytes, bytearray)) else result.encode("latin1", errors="ignore")
 
 # ================================================================
 # MAIN APP
 # ================================================================
 if st.session_state["generated"]:
-    m = folium.Map(location=[11,78.5], zoom_start=8)
+    m = folium.Map(location=[11, 78.5], zoom_start=8)
     cells_ll, merged_ll, overlay_gdf, bounds = [], None, None, None
 
     # AOI
     if uploaded_aoi:
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(uploaded_aoi.read()); path=tmp.name
+            tmp.write(uploaded_aoi.read()); aoi_path = tmp.name
         if uploaded_aoi.name.lower().endswith(".kmz"):
-            with zipfile.ZipFile(path) as z:
-                kml=[f for f in z.namelist() if f.endswith(".kml")][0]
-                path=os.path.join(tempfile.gettempdir(),"aoi.kml")
-                with open(path,"wb") as f: f.write(z.read(kml))
-        gdf=read_kml_safely(path); polys=gdf.geometry
-        cells_ll,merged_ll=make_grid_exact_clipped(polys,cell_size)
-        aoi_union=unary_union(polys)
-        folium.GeoJson(mapping(aoi_union),style_function=lambda x:{"color":"red","weight":3}).add_to(m)
-        for c in cells_ll: folium.GeoJson(mapping(c),style_function=lambda x:{"color":"red","weight":1}).add_to(m)
-        bounds=[[aoi_union.bounds[1],aoi_union.bounds[0]],[aoi_union.bounds[3],aoi_union.bounds[2]]]
+            with zipfile.ZipFile(aoi_path) as z:
+                kml = [f for f in z.namelist() if f.endswith(".kml")][0]
+                aoi_path = os.path.join(tempfile.gettempdir(), "aoi.kml")
+                with open(aoi_path, "wb") as f: f.write(z.read(kml))
+        gdf = read_kml_safely(aoi_path)
+        polygons = gdf.geometry
+        cells_ll, merged_ll = make_grid_exact_clipped(polygons, cell_size)
+        aoi_union = unary_union(polygons)
+        folium.GeoJson(mapping(aoi_union), style_function=lambda x: {"color": "red", "weight": 3, "fillOpacity": 0}).add_to(m)
+        for c in cells_ll:
+            folium.GeoJson(mapping(c), style_function=lambda x: {"color": "red", "weight": 1, "fillOpacity": 0}).add_to(m)
+        bounds = [[aoi_union.bounds[1], aoi_union.bounds[0]],
+                  [aoi_union.bounds[3], aoi_union.bounds[2]]]
 
     # Overlay
     if overlay_file:
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(overlay_file.read()); path2=tmp.name
+            tmp.write(overlay_file.read()); ov_path = tmp.name
         if overlay_file.name.lower().endswith(".kmz"):
-            with zipfile.ZipFile(path2) as z:
-                kml=[f for f in z.namelist() if f.endswith(".kml")][0]
-                path2=os.path.join(tempfile.gettempdir(),"overlay.kml")
-                with open(path2,"wb") as f: f.write(z.read(kml))
-        overlay_gdf=read_kml_safely(path2).to_crs(4326)
+            with zipfile.ZipFile(ov_path) as z:
+                kml = [f for f in z.namelist() if f.endswith(".kml")][0]
+                ov_path = os.path.join(tempfile.gettempdir(), "overlay.kml")
+                with open(ov_path, "wb") as f: f.write(z.read(kml))
+        overlay_gdf = read_kml_safely(ov_path).to_crs(4326)
         for g in overlay_gdf.geometry:
             if g.is_empty: continue
-            folium.GeoJson(mapping(g),style_function=lambda x:{"color":"#FFD700","weight":3}).add_to(m)
+            folium.GeoJson(mapping(g), style_function=lambda x: {"color": "#FFD700", "weight": 3, "fillOpacity": 0}).add_to(m)
 
-    if bounds: m.fit_bounds(bounds)
-    st_folium(m,width=1200,height=700)
+    if bounds:
+        m.fit_bounds(bounds)
+    st_folium(m, width=1200, height=700)
 
     # Downloads
-    ui=st.session_state["user_inputs"]
-    grid_kml=generate_grid_only_kml(cells_ll,merged_ll)
-    labeled_kml=generate_labeled_kml(cells_ll,merged_ll,ui,overlay_gdf)
-    pdf_bytes=build_pdf_report_standard(cells_ll,merged_ll,ui,cell_size,overlay_gdf,title_text,density,area_invasive)
+    ui = st.session_state["user_inputs"]
+    grid_only_kml = generate_grid_only_kml(cells_ll, merged_ll, ui)
+    labeled_kml  = generate_labeled_kml(cells_ll, merged_ll, ui, overlay_gdf)
+    pdf_bytes    = build_pdf_report_standard(cells_ll, merged_ll, ui, cell_size, overlay_gdf, title_text, density, area_invasive)
 
     st.markdown("### 💾 Downloads")
-    c1,c2,c3=st.columns(3)
-    with c1: st.download_button("📦 Download Grid Only KML",grid_kml,file_name="grid_only.kml")
-    with c2: st.download_button("🧾 Download Labeled + Overlay KML",labeled_kml,file_name="merged_labeled.kml")
-    with c3: st.download_button("📄 Download Invasive Report (PDF)",pdf_bytes,file_name="Invasive_Report.pdf",mime="application/pdf")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.download_button("📦 Download Grid Only KML", grid_only_kml, file_name="grid_only.kml", mime="application/vnd.google-earth.kml+xml")
+    with c2:
+        st.download_button("🧾 Download Labeled + Overlay KML", labeled_kml, file_name="merged_labeled.kml", mime="application/vnd.google-earth.kml+xml")
+    with c3:
+        if generate_pdf:
+            st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, then click ▶ Generate Grid.")
-
-
