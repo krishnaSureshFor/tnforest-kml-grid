@@ -413,23 +413,19 @@ def build_pdf_report_standard(
 # ================================================================
 
 # 1️⃣ Collect user input values into session state on every render
-# 1️⃣ Collect user input values (safe method — don't overwrite widget keys)
 st.session_state["user_inputs"] = {
-    "range_name": st.session_state.get("range_name", range_name),
-    "rf_name": st.session_state.get("rf_name", rf_name),
-    "beat_name": st.session_state.get("beat_name", beat_name),
-    "year_of_work": st.session_state.get("year_of_work", year_of_work),
+    "range_name": range_name,
+    "rf_name": rf_name,
+    "beat_name": beat_name,
+    "year_of_work": year_of_work,
 }
-
-# Read widget state directly (no reassignment)
-title_text = st.session_state.get("title_text", title_text)
-density = st.session_state.get("density", density)
-area_invasive = st.session_state.get("area_invasive", area_invasive)
-cell_size = st.session_state.get("cell_size", cell_size)
-
+st.session_state["title_text"] = title_text
+st.session_state["density"] = density
+st.session_state["area_invasive"] = area_invasive
+st.session_state["cell_size"] = cell_size
 
 # ================================================================
-# CACHED OUTPUT GENERATOR
+# CACHED OUTPUT GENERATOR (Prevents reloads and recomputation)
 # ================================================================
 @st.cache_data(show_spinner=False)
 def generate_all_outputs(aoi_path, overlay_path, user_inputs, cell_size, title_text, density, area_invasive):
@@ -457,17 +453,18 @@ def generate_all_outputs(aoi_path, overlay_path, user_inputs, cell_size, title_t
         "merged_ll": merged_ll,
     }
 
-# 2️⃣ Only execute heavy logic if user pressed Generate
+# ================================================================
+# MAIN EXECUTION (Only after pressing Generate)
+# ================================================================
 if generate_click:
     st.session_state["generated"] = True
 
-# 3️⃣ Only display map + outputs once generated
 if st.session_state.get("generated", False):
 
     st.success("✅ Grid successfully generated! Scroll below to preview map and downloads.")
-    aoi_path, ov_path = None, None
 
     # Handle AOI (required)
+    aoi_path, ov_path = None, None
     if uploaded_aoi:
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             tmp.write(uploaded_aoi.read())
@@ -495,21 +492,23 @@ if st.session_state.get("generated", False):
                     f.write(z.read(kml))
 
     # ============================================================
-    # Run cached generator (no recomputation, no reload on download)
+    # Generate all outputs (cached)
     # ============================================================
     outputs = generate_all_outputs(
         aoi_path, ov_path,
         st.session_state["user_inputs"],
-        cell_size, title_text, density, area_invasive
+        st.session_state["cell_size"],
+        st.session_state["title_text"],
+        st.session_state["density"],
+        st.session_state["area_invasive"],
     )
     for k, v in outputs.items():
         st.session_state[k] = v
 
     # ============================================================
-    # MAP PREVIEW — Static and stable
+    # MAP PREVIEW
     # ============================================================
     m = folium.Map(location=[11, 78.5], zoom_start=8)
-
     gdf_for_bounds = read_kml_safely(aoi_path)
     aoi_union = unary_union(gdf_for_bounds.geometry)
 
@@ -529,12 +528,11 @@ if st.session_state.get("generated", False):
     # Overlay
     if st.session_state["overlay_gdf"] is not None and not st.session_state["overlay_gdf"].empty:
         for g in st.session_state["overlay_gdf"].geometry:
-            if g.is_empty:
-                continue
-            folium.GeoJson(
-                mapping(g),
-                style_function=lambda x: {"color": "#FFD700", "weight": 3, "fillOpacity": 0}
-            ).add_to(m)
+            if not g.is_empty:
+                folium.GeoJson(
+                    mapping(g),
+                    style_function=lambda x: {"color": "#FFD700", "weight": 3, "fillOpacity": 0}
+                ).add_to(m)
 
     # Fit bounds and display
     bounds = [
@@ -544,49 +542,54 @@ if st.session_state.get("generated", False):
     m.fit_bounds(bounds)
     st_folium(m, width=1200, height=700)
 
-   # ============================================================
-# DOWNLOADS — No reload on click (wrapped in form)
-# ============================================================
-st.markdown("### 💾 Downloads")
+    # ============================================================
+    # DOWNLOADS — No reload on click (wrapped in form)
+    # ============================================================
+    st.markdown("### 💾 Downloads")
 
-# Wrap the downloads in a form so clicking buttons doesn't re-run the app
-with st.form("downloads_form", clear_on_submit=False):
-    c1, c2, c3 = st.columns(3)
+    with st.form("downloads_form", clear_on_submit=False):
+        c1, c2, c3 = st.columns(3)
 
-    with c1:
-        st.download_button(
-            "📦 Download Grid Only KML",
-            st.session_state["grid_only_kml"],
-            file_name="grid_only.kml",
-            mime="application/vnd.google-earth.kml+xml",
-            use_container_width=True
-        )
-
-    with c2:
-        st.download_button(
-            "🧾 Download Labeled + Overlay KML",
-            st.session_state["labeled_kml"],
-            file_name="merged_labeled.kml",
-            mime="application/vnd.google-earth.kml+xml",
-            use_container_width=True
-        )
-
-    with c3:
-        if generate_pdf:
+        with c1:
             st.download_button(
-                "📄 Download Invasive Report (PDF)",
-                st.session_state["pdf_bytes"],
-                file_name="Invasive_Report.pdf",
-                mime="application/pdf",
+                "📦 Download Grid Only KML",
+                st.session_state["grid_only_kml"],
+                file_name="grid_only.kml",
+                mime="application/vnd.google-earth.kml+xml",
                 use_container_width=True
             )
 
-    # Dummy submit to keep the form stable
-    st.form_submit_button("✅ All files ready — safe to download", disabled=True)
+        with c2:
+            st.download_button(
+                "🧾 Download Labeled + Overlay KML",
+                st.session_state["labeled_kml"],
+                file_name="merged_labeled.kml",
+                mime="application/vnd.google-earth.kml+xml",
+                use_container_width=True
+            )
 
-# ← make sure this `else:` is aligned with the *if st.session_state.get...* above
+        with c3:
+            if generate_pdf:
+                st.download_button(
+                    "📄 Download Invasive Report (PDF)",
+                    st.session_state["pdf_bytes"],
+                    file_name="Invasive_Report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
+        # Dummy submit to prevent rerun
+        st.form_submit_button("✅ All files ready — safe to download", disabled=True)
+
 else:
     st.info("👆 Upload AOI (KML/KMZ) and Overlay, adjust details, then click ▶ **Generate Grid**.")
 
-# Optional: Hide Streamlit spinner for smoother UI
-st.markdown("<style>.stSpinner{display:none}</style>", unsafe_allow_html=True)
+# ================================================================
+# UI POLISH — Hide spinner + clean style
+# ================================================================
+st.markdown("""
+<style>
+.stSpinner {display: none !important;}
+[data-testid="stDownloadButton"] button:focus {outline: none !important;}
+</style>
+""", unsafe_allow_html=True)
