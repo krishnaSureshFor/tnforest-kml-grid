@@ -81,6 +81,12 @@ def generate_grid_only_kml(cells_ll, merged_ll):
     ns = "http://www.opengis.net/kml/2.2"
     kml = etree.Element("{%s}kml" % ns)
     doc = etree.SubElement(kml, "{%s}Document" % ns)
+    etree.SubElement(doc, "{%s}name" % ns).text = "Labeled Grid + Overlay"
+    etree.SubElement(doc, "{%s}description" % ns).text = (
+        "This KML file contains generated grid cells and overlay polygons for "
+        "forest invasive monitoring.\n"
+        "Developed by Rasipuram Range, Tamil Nadu Forest Department."
+    )
     style = etree.SubElement(doc, "{%s}Style" % ns, id="gridStyle")
     ls = etree.SubElement(style, "{%s}LineStyle" % ns)
     etree.SubElement(ls, "{%s}color" % ns).text = "ff0000ff"
@@ -461,6 +467,7 @@ if st.session_state["generated"]:
             st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, add labels, then click ▶ Generate Grid.")
+
 
 
 
