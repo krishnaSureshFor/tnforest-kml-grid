@@ -408,145 +408,26 @@ def build_pdf_report_standard(
     # Output bytes
     result = pdf.output(dest="S")
     return bytes(result) if isinstance(result, (bytes, bytearray)) else result.encode("latin1", errors="ignore")
-# ================================================================
-# MAIN APP CONTROL FLOW — Runs only on Generate
-# ================================================================
-
-# 1️⃣ Collect user input values into session state on every render
-st.session_state["user_inputs"] = {
-    "range_name": range_name,
-    "rf_name": rf_name,
-    "beat_name": beat_name,
-    "year_of_work": year_of_work,
-}
-st.session_state["title_text"] = title_text
-st.session_state["density"] = density
-st.session_state["area_invasive"] = area_invasive
-st.session_state["cell_size"] = cell_size
-
-# ================================================================
-# CACHED OUTPUT GENERATOR (Prevents reloads and recomputation)
-# ================================================================
-@st.cache_data(show_spinner=False)
-def generate_all_outputs(aoi_path, overlay_path, user_inputs, cell_size, title_text, density, area_invasive):
-    gdf = read_kml_safely(aoi_path)
-    polygons = gdf.geometry
-    cells_ll, merged_ll = make_grid_exact_clipped(polygons, cell_size)
-
-    overlay_gdf = None
-    if overlay_path:
-        overlay_gdf = read_kml_safely(overlay_path).to_crs(4326)
-
-    grid_only_kml = generate_grid_only_kml(cells_ll, merged_ll, user_inputs)
-    labeled_kml = generate_labeled_kml(cells_ll, merged_ll, user_inputs, overlay_gdf)
-    pdf_bytes = build_pdf_report_standard(
-        cells_ll, merged_ll, user_inputs, cell_size, overlay_gdf,
-        title_text, density, area_invasive
-    )
-
-    return {
-        "grid_only_kml": grid_only_kml,
-        "labeled_kml": labeled_kml,
-        "pdf_bytes": pdf_bytes,
-        "overlay_gdf": overlay_gdf,
-        "cells_ll": cells_ll,
-        "merged_ll": merged_ll,
-    }
-
-# ================================================================
-# MAIN EXECUTION (Only after pressing Generate)
-# ================================================================
-if generate_click:
-    st.session_state["generated"] = True
+# ============================================================
+# MAIN APP CONTROL FLOW
+# ============================================================
 
 if st.session_state.get("generated", False):
 
-    st.success("✅ Grid successfully generated! Scroll below to preview map and downloads.")
-
-    # Handle AOI (required)
-    aoi_path, ov_path = None, None
-    if uploaded_aoi:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(uploaded_aoi.read())
-            aoi_path = tmp.name
-        if uploaded_aoi.name.lower().endswith(".kmz"):
-            with zipfile.ZipFile(aoi_path) as z:
-                kml = [f for f in z.namelist() if f.endswith(".kml")][0]
-                aoi_path = os.path.join(tempfile.gettempdir(), "aoi.kml")
-                with open(aoi_path, "wb") as f:
-                    f.write(z.read(kml))
-    else:
-        st.warning("⚠️ Please upload an AOI file before generating.")
-        st.stop()
-
-    # Handle Overlay (optional)
-    if overlay_file:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(overlay_file.read())
-            ov_path = tmp.name
-        if overlay_file.name.lower().endswith(".kmz"):
-            with zipfile.ZipFile(ov_path) as z:
-                kml = [f for f in z.namelist() if f.endswith(".kml")][0]
-                ov_path = os.path.join(tempfile.gettempdir(), "overlay.kml")
-                with open(ov_path, "wb") as f:
-                    f.write(z.read(kml))
+    st.success("✅ Grid successfully generated!")
 
     # ============================================================
-    # Generate all outputs (cached)
+    # PREVIEW MAP SECTION
     # ============================================================
-    outputs = generate_all_outputs(
-        aoi_path, ov_path,
-        st.session_state["user_inputs"],
-        st.session_state["cell_size"],
-        st.session_state["title_text"],
-        st.session_state["density"],
-        st.session_state["area_invasive"],
-    )
-    for k, v in outputs.items():
-        st.session_state[k] = v
-
-    # ============================================================
-    # MAP PREVIEW
-    # ============================================================
-    m = folium.Map(location=[11, 78.5], zoom_start=8)
-    gdf_for_bounds = read_kml_safely(aoi_path)
-    aoi_union = unary_union(gdf_for_bounds.geometry)
-
-    # AOI boundary
-    folium.GeoJson(
-        mapping(aoi_union),
-        style_function=lambda x: {"color": "red", "weight": 3, "fillOpacity": 0}
-    ).add_to(m)
-
-    # Grid cells
-    for c in st.session_state["cells_ll"]:
-        folium.GeoJson(
-            mapping(c),
-            style_function=lambda x: {"color": "red", "weight": 1, "fillOpacity": 0}
-        ).add_to(m)
-
-    # Overlay
-    if st.session_state["overlay_gdf"] is not None and not st.session_state["overlay_gdf"].empty:
-        for g in st.session_state["overlay_gdf"].geometry:
-            if not g.is_empty:
-                folium.GeoJson(
-                    mapping(g),
-                    style_function=lambda x: {"color": "#FFD700", "weight": 3, "fillOpacity": 0}
-                ).add_to(m)
-
-    # Fit bounds and display
-    bounds = [
-        [aoi_union.bounds[1], aoi_union.bounds[0]],
-        [aoi_union.bounds[3], aoi_union.bounds[2]],
-    ]
-    m.fit_bounds(bounds)
-    st_folium(m, width=1200, height=700)
+    st.markdown("### 🗺️ Preview Area of Interest and Grid")
+    st_folium(st.session_state["map"], height=600, width=None)
 
     # ============================================================
     # DOWNLOADS — No reload on click (wrapped in form)
     # ============================================================
     st.markdown("### 💾 Downloads")
 
+    # Wrap the downloads in a form so clicking buttons doesn't re-run the app
     with st.form("downloads_form", clear_on_submit=False):
         c1, c2, c3 = st.columns(3)
 
@@ -569,7 +450,7 @@ if st.session_state.get("generated", False):
             )
 
         with c3:
-            if generate_pdf:
+            if st.session_state.get("pdf_bytes"):
                 st.download_button(
                     "📄 Download Invasive Report (PDF)",
                     st.session_state["pdf_bytes"],
@@ -578,18 +459,13 @@ if st.session_state.get("generated", False):
                     use_container_width=True
                 )
 
-        # Dummy submit to prevent rerun
+        # Dummy submit to stabilize form state
         st.form_submit_button("✅ All files ready — safe to download", disabled=True)
 
 else:
     st.info("👆 Upload AOI (KML/KMZ) and Overlay, adjust details, then click ▶ **Generate Grid**.")
 
-# ================================================================
-# UI POLISH — Hide spinner + clean style
-# ================================================================
-st.markdown("""
-<style>
-.stSpinner {display: none !important;}
-[data-testid="stDownloadButton"] button:focus {outline: none !important;}
-</style>
-""", unsafe_allow_html=True)
+# ============================================================
+# UI Enhancements (optional)
+# ============================================================
+st.markdown("<style>.stSpinner{display:none}</style>", unsafe_allow_html=True)
