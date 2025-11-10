@@ -18,27 +18,35 @@ from lxml import etree
 st.set_page_config(page_title="KML to Grid Generator v4.3", layout="wide")
 st.title("🗺️ KML to Grid Generator v4.3 (KMZ Supported)")
 # ================================================================
-# 🌿 CUSTOM FOREST-THEMED LIGHT UI
+# 🌿 FOREST-THEMED LIGHT UI (FINAL PREMIUM STYLE)
 # ================================================================
 custom_style = """
 <style>
-/* 🌄 App background gradient (soft yellow-green) */
+/* 🌄 App background gradient (soft yellow-green forest tone) */
 .stApp {
-    background: linear-gradient(135deg, #fbfbd4 0%, #e6f9cf 50%, #d9f5d2 100%);
+    background: linear-gradient(135deg, #f9fbd7 0%, #e2f7ca 50%, #d2f5d7 100%);
 }
 
-/* 🧭 Sidebar with light blue gradient */
+/* 🧭 Sidebar — Light blue gradient with bold header */
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #d9efff 0%, #bfe4ff 100%);
+    background: linear-gradient(180deg, #d9efff 0%, #bde0fe 100%);
     color: #1d3557;
 }
-section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
-    color: #1d3557;
+section[data-testid="stSidebar"] h2 {
+    color: #023047;
+    font-weight: 800 !important;
+    text-align: center;
+    border-bottom: 2px solid #8ecae6;
+    padding-bottom: 6px;
+}
+section[data-testid="stSidebar"] h2::before {
+    content: "🌲 ";
 }
 
-/* 🌳 Titles and headings */
+/* 🌳 Titles and Headings */
 h1, h2, h3, h4 {
     color: #1b4332;
+    font-family: "Segoe UI", sans-serif;
 }
 
 /* 🌿 Buttons */
@@ -48,11 +56,12 @@ div.stButton > button {
     font-weight: 600;
     border-radius: 10px;
     border: none;
-    box-shadow: 1px 2px 4px rgba(0,0,0,0.2);
+    box-shadow: 1px 2px 5px rgba(0,0,0,0.2);
+    transition: all 0.2s ease;
 }
 div.stButton > button:hover {
-    background: linear-gradient(90deg, #7bc47f, #58b16e);
-    transform: scale(1.02);
+    background: linear-gradient(90deg, #79c781, #58b16e);
+    transform: scale(1.03);
 }
 
 /* 🌼 Download buttons */
@@ -63,29 +72,44 @@ div.stButton > button:hover {
     border: none;
     font-weight: 600;
     box-shadow: 1px 2px 4px rgba(0,0,0,0.15);
+    transition: all 0.2s ease;
 }
 .stDownloadButton > button:hover {
     background: linear-gradient(90deg, #ffe372, #ffc94a);
-    transform: scale(1.02);
+    transform: scale(1.03);
 }
 
 /* 🌿 Inputs and text boxes */
-input, textarea {
+input, textarea, select {
     background-color: #fafff4 !important;
     border: 1px solid #b6d7a8 !important;
     color: #1b4332 !important;
     border-radius: 6px !important;
 }
 
-/* 🗺️ Folium map container */
+/* 🗺️ Folium map frame — double color border, rounded corners, shadow */
 iframe[title="streamlit_folium"] {
-    border-radius: 15px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.25);
-    border: 2px solid #bde0fe;
+    border-radius: 18px;
+    border: 5px double transparent;
+    background-image: linear-gradient(white, white),
+                      linear-gradient(90deg, #4caf50, #d4af37);
+    background-origin: border-box;
+    background-clip: content-box, border-box;
+    box-shadow: 0 5px 12px rgba(0,0,0,0.25);
+    padding: 2px;
 }
 
-/* General fine-tuning */
-hr { border: 0; border-top: 1px solid #cde4c1; }
+/* Horizontal lines */
+hr {
+    border: 0;
+    border-top: 1px solid #cde4c1;
+}
+
+/* Fine text styling */
+label, span, p {
+    color: #1b4332 !important;
+    font-family: "Segoe UI", sans-serif;
+}
 </style>
 """
 st.markdown(custom_style, unsafe_allow_html=True)
@@ -548,6 +572,7 @@ if st.session_state["generated"]:
             st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, add labels, then click ▶ Generate Grid.")
+
 
 
 
