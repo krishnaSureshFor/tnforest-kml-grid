@@ -289,7 +289,7 @@ with col2: reset_click = st.button("🔄 Reset Map")
 if reset_click:
     st.session_state.clear()
     init_state()
-    st.experimental_rerun()
+    st.rerun()
 if generate_click:
     st.session_state["generated"] = True
 
@@ -366,5 +366,6 @@ if st.session_state["generated"]:
             st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, add labels, then click ▶ Generate Grid.")
+
 
 
