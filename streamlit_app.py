@@ -413,16 +413,20 @@ def build_pdf_report_standard(
 # ================================================================
 
 # 1️⃣ Collect user input values into session state on every render
+# 1️⃣ Collect user input values (safe method — don't overwrite widget keys)
 st.session_state["user_inputs"] = {
-    "range_name": range_name,
-    "rf_name": rf_name,
-    "beat_name": beat_name,
-    "year_of_work": year_of_work,
+    "range_name": st.session_state.get("range_name", range_name),
+    "rf_name": st.session_state.get("rf_name", rf_name),
+    "beat_name": st.session_state.get("beat_name", beat_name),
+    "year_of_work": st.session_state.get("year_of_work", year_of_work),
 }
-st.session_state["title_text"] = title_text
-st.session_state["density"] = density
-st.session_state["area_invasive"] = area_invasive
-st.session_state["cell_size"] = cell_size
+
+# Read widget state directly (no reassignment)
+title_text = st.session_state.get("title_text", title_text)
+density = st.session_state.get("density", density)
+area_invasive = st.session_state.get("area_invasive", area_invasive)
+cell_size = st.session_state.get("cell_size", cell_size)
+
 
 # ================================================================
 # CACHED OUTPUT GENERATOR
@@ -574,3 +578,4 @@ else:
 
 # Optional: Hide Streamlit spinner for smoother UI
 st.markdown("<style>.stSpinner{display:none}</style>", unsafe_allow_html=True)
+
