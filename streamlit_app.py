@@ -409,6 +409,45 @@ def build_pdf_report_standard(
     result = pdf.output(dest="S")
     return bytes(result) if isinstance(result, (bytes, bytearray)) else result.encode("latin1", errors="ignore")
 # ============================================================
+# BUILD MAP ONCE WHEN GRID GENERATED
+# ============================================================
+if "map" not in st.session_state:
+    m = folium.Map(location=[11, 78.5], zoom_start=8)
+    gdf_for_bounds = read_kml_safely(aoi_path)
+    aoi_union = unary_union(gdf_for_bounds.geometry)
+
+    # AOI boundary
+    folium.GeoJson(
+        mapping(aoi_union),
+        style_function=lambda x: {"color": "red", "weight": 3, "fillOpacity": 0}
+    ).add_to(m)
+
+    # Grid cells
+    for c in st.session_state["cells_ll"]:
+        folium.GeoJson(
+            mapping(c),
+            style_function=lambda x: {"color": "red", "weight": 1, "fillOpacity": 0}
+        ).add_to(m)
+
+    # Overlay
+    if st.session_state["overlay_gdf"] is not None and not st.session_state["overlay_gdf"].empty:
+        for g in st.session_state["overlay_gdf"].geometry:
+            if not g.is_empty:
+                folium.GeoJson(
+                    mapping(g),
+                    style_function=lambda x: {"color": "#FFD700", "weight": 3, "fillOpacity": 0}
+                ).add_to(m)
+
+    bounds = [
+        [aoi_union.bounds[1], aoi_union.bounds[0]],
+        [aoi_union.bounds[3], aoi_union.bounds[2]],
+    ]
+    m.fit_bounds(bounds)
+
+    # ✅ Store the map object in session state
+    st.session_state["map"] = m
+
+# ============================================================
 # MAIN APP CONTROL FLOW
 # ============================================================
 
@@ -469,3 +508,4 @@ else:
 # UI Enhancements (optional)
 # ============================================================
 st.markdown("<style>.stSpinner{display:none}</style>", unsafe_allow_html=True)
+
