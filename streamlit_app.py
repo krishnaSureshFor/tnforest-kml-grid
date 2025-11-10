@@ -175,8 +175,8 @@ def build_pdf_report_standard(cells_ll, merged_ll, user_inputs, cell_size, overl
     crs=3857,
     source=ctx.providers.Esri.WorldImagery,
     zoom=14,
-    attribution=False  # ✅ disables the ESRI/Leaflet attribution text
-    ax.patch.set_facecolor("white")
+    attribution=False,  # ✅ disables the ESRI/Leaflet attribution text
+    ax.patch.set_facecolor("white"),
     ax.patch.set_alpha(0.9)
     )
     ax.axis("off")
@@ -374,6 +374,7 @@ if st.session_state["generated"]:
             st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, add labels, then click ▶ Generate Grid.")
+
 
 
 
