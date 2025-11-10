@@ -234,34 +234,41 @@ def build_pdf_report_standard(
     from fpdf import FPDF
     import tempfile, os
 
-    # ──────────────────────────────
-    # CONFIGURATION
-    # ──────────────────────────────
-    MAP_X, MAP_Y = 15, 55      # Map placement
-    MAP_W, MAP_H = 180, 145    # Map size (¾ page)
-    LEGEND_GAP = 8             # Gap below map before legend
-    NOTE_GAP = 3               # Gap between legend and note
+    MAP_X, MAP_Y = 15, 55
+    MAP_W, MAP_H = 180, 145
+    LEGEND_GAP = 8
+    NOTE_GAP = 3
     EMBLEM_PATH = os.path.join(os.path.dirname(__file__), "tn_emblem.png")
 
-    pdf = FPDF("P", "mm", "A4")
+    class PDF(FPDF):
+        def header(self):
+            if self.page_no() > 1:
+                # For pages >1: emblem + header again
+                if os.path.exists(EMBLEM_PATH):
+                    self.image(EMBLEM_PATH, x=93, y=8, w=25)
+                self.set_y(35)
+                self.set_font("Helvetica", "B", 16)
+                self.cell(0, 10, "FOREST DEPARTMENT", align="C", ln=1)
+                self.ln(5)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("Helvetica", "I", 9)
+            self.set_text_color(80, 80, 80)
+            self.cell(0, 10, f"Page {self.page_no()} of {{nb}}", 0, 0, "C")
+
+    pdf = PDF("P", "mm", "A4")
     pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.alias_nb_pages()
 
-    # ──────────────────────────────
-    # HEADER FUNCTION
-    # ──────────────────────────────
-    def header_section():
-        pdf.set_y(10)
-        if os.path.exists(EMBLEM_PATH):
-            pdf.image(EMBLEM_PATH, x=93, y=8, w=25)
-        pdf.set_y(35)
-        pdf.set_font("Helvetica", "B", 16)
-        pdf.cell(0, 10, "FOREST DEPARTMENT", align="C", ln=1)
-
-    # ──────────────────────────────
-    # PAGE 1 — MAP + LEGEND
-    # ──────────────────────────────
+    # ───── PAGE 1 — Map + Legend ─────
     pdf.add_page()
-    header_section()
+    # Custom header for first page (bigger layout)
+    if os.path.exists(EMBLEM_PATH):
+        pdf.image(EMBLEM_PATH, x=93, y=8, w=25)
+    pdf.set_y(35)
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, "FOREST DEPARTMENT", align="C", ln=1)
     pdf.ln(2)
     pdf.set_font("Helvetica", "B", 13)
     pdf.cell(0, 10, title_text, align="C", ln=1)
@@ -275,12 +282,12 @@ def build_pdf_report_standard(
 
     merged_gdf = gpd.GeoSeries([merged_ll], crs="EPSG:4326").to_crs(3857)
     grid_gdf = gpd.GeoSeries(cells_ll, crs="EPSG:4326").to_crs(3857)
-    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3, label="AOI")
-    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1, label="Grid")
+    merged_gdf.boundary.plot(ax=ax, color="red", linewidth=3)
+    grid_gdf.boundary.plot(ax=ax, color="red", linewidth=1)
 
     if overlay_gdf is not None and not overlay_gdf.empty:
         overlay_gdf = overlay_gdf.to_crs(3857)
-        overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3, label="Overlay")
+        overlay_gdf.boundary.plot(ax=ax, color="#FFD700", linewidth=3)
 
     ctx.add_basemap(ax, crs=3857, source=ctx.providers.Esri.WorldImagery)
     ax.axis("off")
@@ -288,12 +295,9 @@ def build_pdf_report_standard(
     fig.savefig(map_img_path, dpi=250, bbox_inches="tight")
     plt.close(fig)
 
-    # Place map image
     pdf.image(map_img_path, x=MAP_X, y=MAP_Y, w=MAP_W, h=MAP_H)
 
-    # ──────────────────────────────
-    # LEGEND BELOW MAP
-    # ──────────────────────────────
+    # Legend
     legend_y = MAP_Y + MAP_H + LEGEND_GAP
     pdf.set_y(legend_y)
     pdf.set_fill_color(245, 245, 240)
@@ -306,7 +310,7 @@ def build_pdf_report_standard(
         f"Range: {user_inputs.get('range_name', '')}",
         f"RF: {user_inputs.get('rf_name', '')}",
         f"Beat: {user_inputs.get('beat_name', '')}",
-        f"Year: {user_inputs.get('year_of_work', '')}",
+        f"Year of Work: {user_inputs.get('year_of_work', '')}",
     ]
     col2 = [
         f"Density: {density}",
@@ -318,22 +322,20 @@ def build_pdf_report_standard(
         pdf.text(MAP_X + 10, y_start + i * 6, col1[i])
         pdf.text(MAP_X + 100, y_start + i * 6, col2[i])
 
-    # ──────────────────────────────
-    # NOTE LINE (IN SAME PAGE)
-    # ──────────────────────────────
+    # Note below legend
     note_y = legend_y + 45
     pdf.set_y(note_y)
     pdf.set_font("Helvetica", "I", 9)
     pdf.set_text_color(80, 80, 80)
-    pdf.multi_cell(0, 5, "Note: Satellite background (Esri) and boundaries are automatically generated. Developed by Rasipuram Range.")
+    pdf.multi_cell(
+        0, 5,
+        "Note: Satellite background (Esri) and boundaries are automatically generated. "
+        "Developed by Rasipuram Range."
+    )
     pdf.set_text_color(0, 0, 0)
 
-    # ──────────────────────────────
-    # PAGE 2 — CORNER GPS TABLE
-    # ──────────────────────────────
+    # ───── PAGE 2 — Corner GPS Table ─────
     pdf.add_page()
-    header_section()
-    pdf.ln(2)
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 10, "Corner GPS of Overlay Area", ln=1, align="C")
 
@@ -364,8 +366,6 @@ def build_pdf_report_standard(
                 row_no += 1
                 if pdf.get_y() > 265:
                     pdf.add_page()
-                    header_section()
-                    pdf.ln(2)
                     pdf.set_font("Helvetica", "B", 11)
                     pdf.cell(25, 8, "S.No", 1, align="C")
                     pdf.cell(75, 8, "Latitude", 1, align="C")
@@ -375,24 +375,11 @@ def build_pdf_report_standard(
     else:
         pdf.cell(0, 8, "No overlay polygons detected.", 1, align="C")
 
-    # ──────────────────────────────
-    # PAGE NUMBER FOOTER
-    # ──────────────────────────────
-    total_pages = pdf.page_no()
-    for n in range(1, total_pages + 1):
-        pdf.page = n
-        pdf.set_y(-15)
-        pdf.set_font("Helvetica", "I", 9)
-        pdf.cell(0, 10, f"Page {n} of {total_pages}", 0, 0, "C")
-
-    # ──────────────────────────────
-    # OUTPUT
-    # ──────────────────────────────
+    # Output
     result = pdf.output(dest="S")
-    if isinstance(result, bytearray):
+    if isinstance(result, (bytes, bytearray)):
         return bytes(result)
     return result.encode("latin1", errors="ignore")
-
 # ================================================================
 # MAIN LOGIC
 # ================================================================
@@ -462,6 +449,7 @@ if st.session_state["generated"]:
         st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, then click ▶ Generate Grid.")
+
 
 
 
