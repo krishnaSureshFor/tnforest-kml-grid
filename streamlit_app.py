@@ -18,63 +18,77 @@ from lxml import etree
 st.set_page_config(page_title="KML to Grid Generator v4.3", layout="wide")
 st.title("🗺️ KML to Grid Generator v4.3 (KMZ Supported)")
 # ================================================================
-# 🌿 CUSTOM PAGE STYLE — Forest Light Theme
+# 🌿 CUSTOM FOREST-THEMED LIGHT UI
 # ================================================================
-page_bg = """
+custom_style = """
 <style>
-/* Light yellow-green gradient background */
+/* 🌄 App background gradient (soft yellow-green) */
 .stApp {
-    background: linear-gradient(135deg, #f8f7d4 0%, #e3f5c3 50%, #d6f5d0 100%);
+    background: linear-gradient(135deg, #fbfbd4 0%, #e6f9cf 50%, #d9f5d2 100%);
 }
 
-/* Sidebar styling */
+/* 🧭 Sidebar with light blue gradient */
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #f4f7d7 0%, #d8f4cb 100%);
-    color: #203020;
+    background: linear-gradient(180deg, #d9efff 0%, #bfe4ff 100%);
+    color: #1d3557;
+}
+section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+    color: #1d3557;
 }
 
-/* Headings and labels */
+/* 🌳 Titles and headings */
 h1, h2, h3, h4 {
-    color: #2b4a20;
+    color: #1b4332;
 }
 
-/* Buttons */
+/* 🌿 Buttons */
 div.stButton > button {
-    background: linear-gradient(90deg, #a7e08a, #7ad975);
-    color: black;
+    background: linear-gradient(90deg, #8fd694, #65c18c);
+    color: white;
     font-weight: 600;
     border-radius: 10px;
     border: none;
-    box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+    box-shadow: 1px 2px 4px rgba(0,0,0,0.2);
 }
 div.stButton > button:hover {
-    background: linear-gradient(90deg, #97d075, #69c55f);
-    color: white;
+    background: linear-gradient(90deg, #7bc47f, #58b16e);
+    transform: scale(1.02);
 }
 
-/* Input boxes and number fields */
-input, textarea {
-    background-color: #f8ffe8 !important;
-    border: 1px solid #b2d6a3 !important;
-    color: #203020 !important;
-}
-
-/* Download buttons */
+/* 🌼 Download buttons */
 .stDownloadButton > button {
-    background: linear-gradient(90deg, #ffe98a, #f7d45f);
-    color: #2f2f2f;
+    background: linear-gradient(90deg, #ffeb91, #ffd857);
+    color: #333;
     border-radius: 10px;
     border: none;
     font-weight: 600;
+    box-shadow: 1px 2px 4px rgba(0,0,0,0.15);
 }
 .stDownloadButton > button:hover {
-    background: linear-gradient(90deg, #f7d45f, #f2b84a);
-    color: #000;
+    background: linear-gradient(90deg, #ffe372, #ffc94a);
+    transform: scale(1.02);
 }
+
+/* 🌿 Inputs and text boxes */
+input, textarea {
+    background-color: #fafff4 !important;
+    border: 1px solid #b6d7a8 !important;
+    color: #1b4332 !important;
+    border-radius: 6px !important;
+}
+
+/* 🗺️ Folium map container */
+iframe[title="streamlit_folium"] {
+    border-radius: 15px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+    border: 2px solid #bde0fe;
+}
+
+/* General fine-tuning */
+hr { border: 0; border-top: 1px solid #cde4c1; }
 </style>
 """
-st.markdown(page_bg, unsafe_allow_html=True)
-
+st.markdown(custom_style, unsafe_allow_html=True)
 # ================================================================
 # STATE INIT
 # ================================================================
@@ -534,6 +548,7 @@ if st.session_state["generated"]:
             st.download_button("📄 Download Invasive Report (PDF)", pdf_bytes, file_name="Invasive_Report.pdf", mime="application/pdf")
 else:
     st.info("👆 Upload AOI (KML/KMZ), optionally Overlay, add labels, then click ▶ Generate Grid.")
+
 
 
 
