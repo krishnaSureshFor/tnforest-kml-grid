@@ -543,16 +543,36 @@ if st.session_state.get("generated", False):
         st.warning("⚠️ Map not available. Please re-upload AOI and regenerate.")
 
     st.markdown("### 💾 Downloads")
-    with st.form("downloads_form", clear_on_submit=False):
-        c1, c2, c3 = st.columns(3)
-        with c1:
+    c1, c2, c3 = st.columns(3)
+    
+    with c1:
+        st.download_button(
+            "📦 Download Grid Only KML",
+            st.session_state.get("grid_only_kml", b""),
+            file_name="grid_only.kml",
+            mime="application/vnd.google-earth.kml+xml",
+            use_container_width=True
+        )
+    
+    with c2:
+        st.download_button(
+            "🧾 Download Labeled + Overlay KML",
+            st.session_state.get("labeled_kml", b""),
+            file_name="merged_labeled.kml",
+            mime="application/vnd.google-earth.kml+xml",
+            use_container_width=True
+        )
+    
+    with c3:
+        if st.session_state.get("pdf_bytes"):
             st.download_button(
-                "📦 Download Grid Only KML",
-                st.session_state["grid_only_kml"],
-                file_name="grid_only.kml",
-                mime="application/vnd.google-earth.kml+xml",
+                "📄 Download Invasive Report (PDF)",
+                st.session_state["pdf_bytes"],
+                file_name="Invasive_Report.pdf",
+                mime="application/pdf",
                 use_container_width=True
             )
+
         with c2:
             st.download_button(
                 "🧾 Download Labeled + Overlay KML",
@@ -573,6 +593,7 @@ if st.session_state.get("generated", False):
         st.form_submit_button("✅ All files ready — safe to download", disabled=True)
 else:
     st.info("👆 Upload AOI (KML/KMZ) and Overlay, adjust details, then click ▶ **Generate Grid**.")
+
 
 
 
