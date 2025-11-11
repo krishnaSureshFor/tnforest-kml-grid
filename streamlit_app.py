@@ -171,9 +171,6 @@ def utm_crs_for_lonlat(lon, lat):
     zone = int((lon + 180) / 6) + 1
     epsg = 32600 + zone if lat >= 0 else 32700 + zone
     return CRS.from_epsg(epsg)
-if os.path.getsize(st.session_state["aoi_path"]) < 200:
-    st.warning("⚠️ AOI file appears empty or incomplete. Please re-upload a valid KML/KMZ.")
-    st.stop()
 def make_grid_exact_clipped(polygons_ll, cell_size_m=100):
     merged_ll = unary_union(polygons_ll)
     centroid = merged_ll.centroid
@@ -576,6 +573,7 @@ if st.session_state.get("generated", False):
         st.form_submit_button("✅ All files ready — safe to download", disabled=True)
 else:
     st.info("👆 Upload AOI (KML/KMZ) and Overlay, adjust details, then click ▶ **Generate Grid**.")
+
 
 
 
