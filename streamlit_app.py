@@ -452,11 +452,11 @@ import zipfile
 # SAFE TEMP SAVE FOR AOI
 # ============================================================
 if uploaded_aoi and "aoi_path" not in st.session_state:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".kml") as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".kmz") as tmp:
         tmp.write(uploaded_aoi.read())
         st.session_state["aoi_path"] = tmp.name
 
-    # ✅ Safe KMZ handling
+    # ✅ Handle KMZ extraction
     if uploaded_aoi.name.lower().endswith(".kmz"):
         try:
             with zipfile.ZipFile(st.session_state["aoi_path"]) as z:
@@ -469,15 +469,19 @@ if uploaded_aoi and "aoi_path" not in st.session_state:
         except zipfile.BadZipFile:
             st.warning("⚠️ AOI file seems mislabeled or corrupted. Using as plain KML instead.")
 
+# ✅ Now check *after* extraction
+if os.path.exists(st.session_state.get("aoi_path", "")) and os.path.getsize(st.session_state["aoi_path"]) < 200:
+    st.warning("⚠️ AOI KML appears empty or incomplete after extraction. Please re-upload a valid file.")
+    st.stop()
+
 # ============================================================
 # SAFE TEMP SAVE FOR OVERLAY
 # ============================================================
 if overlay_file and "overlay_path" not in st.session_state:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".kml") as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".kmz") as tmp:
         tmp.write(overlay_file.read())
         st.session_state["overlay_path"] = tmp.name
 
-    # ✅ Safe KMZ handling
     if overlay_file.name.lower().endswith(".kmz"):
         try:
             with zipfile.ZipFile(st.session_state["overlay_path"]) as z:
@@ -489,7 +493,6 @@ if overlay_file and "overlay_path" not in st.session_state:
                     st.session_state["overlay_path"] = extracted_path
         except zipfile.BadZipFile:
             st.warning("⚠️ Overlay file seems mislabeled or corrupted. Using as plain KML instead.")
-
 # ============================================================
 # BUILD MAP ONCE WHEN GRID GENERATED
 # ============================================================
@@ -573,5 +576,6 @@ if st.session_state.get("generated", False):
         st.form_submit_button("✅ All files ready — safe to download", disabled=True)
 else:
     st.info("👆 Upload AOI (KML/KMZ) and Overlay, adjust details, then click ▶ **Generate Grid**.")
+
 
 
