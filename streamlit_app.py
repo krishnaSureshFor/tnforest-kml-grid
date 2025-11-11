@@ -124,18 +124,56 @@ if generate_click:
 # HELPERS
 # ================================================================
 def read_kml_safely(path):
-    """Robustly read KML using Fiona fallback."""
+    """
+    Safely read KML/KMZ using Fiona first, fallback to XML parsing if driver fails.
+    """
+    import geopandas as gpd
+    from shapely import wkt
+    from shapely.geometry import Polygon, MultiPolygon
+    from lxml import etree
+    import fiona
+
+    # 1️⃣ Try normal Fiona reader
     try:
         return gpd.read_file(path, driver="KML")
-    except Exception:
-        with fiona.Env():
+    except Exception as e:
+        try:
+            # Some Fiona installs don't support KML well, use engine="fiona"
             return gpd.read_file(path, engine="fiona", driver="KML")
+        except Exception:
+            st.warning("⚠️ Fallback: Fiona failed to parse KML, using XML parser instead.")
 
+    # 2️⃣ Fallback: XML-based reader (manual geometry extraction)
+    try:
+        with open(path, "rb") as f:
+            xml = etree.parse(f)
+        ns = {"kml": "http://www.opengis.net/kml/2.2"}
+        polygons = []
+        for placemark in xml.findall(".//kml:Placemark", ns):
+            coords_elem = placemark.find(".//kml:coordinates", ns)
+            if coords_elem is not None and coords_elem.text:
+                coords = []
+                for pair in coords_elem.text.strip().split():
+                    try:
+                        lon, lat, *_ = map(float, pair.split(","))
+                        coords.append((lon, lat))
+                    except Exception:
+                        continue
+                if len(coords) > 2:
+                    polygons.append(Polygon(coords))
+        if not polygons:
+            raise ValueError("No valid polygons found in KML.")
+        return gpd.GeoDataFrame(geometry=polygons, crs="EPSG:4326")
+    except Exception as e:
+        st.error(f"❌ Failed to parse KML: {e}")
+        return gpd.GeoDataFrame(columns=["geometry"], crs="EPSG:4326")
 def utm_crs_for_lonlat(lon, lat):
     zone = int((lon + 180) / 6) + 1
     epsg = 32600 + zone if lat >= 0 else 32700 + zone
     return CRS.from_epsg(epsg)
-
+if os.path.getsize(st.session_state["aoi_path"]) < 200:
+    st.warning("⚠️ AOI file appears empty or incomplete. Please re-upload a valid KML/KMZ.")
+    st.stop()
 def make_grid_exact_clipped(polygons_ll, cell_size_m=100):
     merged_ll = unary_union(polygons_ll)
     centroid = merged_ll.centroid
@@ -535,4 +573,5 @@ if st.session_state.get("generated", False):
         st.form_submit_button("✅ All files ready — safe to download", disabled=True)
 else:
     st.info("👆 Upload AOI (KML/KMZ) and Overlay, adjust details, then click ▶ **Generate Grid**.")
+
 
