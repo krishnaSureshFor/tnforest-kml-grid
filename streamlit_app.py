@@ -408,30 +408,49 @@ def build_pdf_report_standard(
     # Output bytes
     result = pdf.output(dest="S")
     return bytes(result) if isinstance(result, (bytes, bytearray)) else result.encode("latin1", errors="ignore")
+import zipfile
+
 # ============================================================
-# SAVE UPLOADED FILES TO TEMP (so aoi_path is always available)
+# SAFE TEMP SAVE FOR AOI
 # ============================================================
 if uploaded_aoi and "aoi_path" not in st.session_state:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".kml") as tmp:
         tmp.write(uploaded_aoi.read())
         st.session_state["aoi_path"] = tmp.name
-    if uploaded_aoi.name.lower().endswith(".kmz"):
-        with zipfile.ZipFile(st.session_state["aoi_path"]) as z:
-            kml_files = [f for f in z.namelist() if f.endswith(".kml")]
-            if kml_files:
-                with open(st.session_state["aoi_path"], "wb") as f:
-                    f.write(z.read(kml_files[0]))
 
+    # ✅ Safe KMZ handling
+    if uploaded_aoi.name.lower().endswith(".kmz"):
+        try:
+            with zipfile.ZipFile(st.session_state["aoi_path"]) as z:
+                kml_files = [f for f in z.namelist() if f.endswith(".kml")]
+                if kml_files:
+                    extracted_path = os.path.join(tempfile.gettempdir(), "aoi.kml")
+                    with open(extracted_path, "wb") as f:
+                        f.write(z.read(kml_files[0]))
+                    st.session_state["aoi_path"] = extracted_path
+        except zipfile.BadZipFile:
+            st.warning("⚠️ AOI file seems mislabeled or corrupted. Using as plain KML instead.")
+
+# ============================================================
+# SAFE TEMP SAVE FOR OVERLAY
+# ============================================================
 if overlay_file and "overlay_path" not in st.session_state:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".kml") as tmp:
         tmp.write(overlay_file.read())
         st.session_state["overlay_path"] = tmp.name
+
+    # ✅ Safe KMZ handling
     if overlay_file.name.lower().endswith(".kmz"):
-        with zipfile.ZipFile(st.session_state["overlay_path"]) as z:
-            kml_files = [f for f in z.namelist() if f.endswith(".kml")]
-            if kml_files:
-                with open(st.session_state["overlay_path"], "wb") as f:
-                    f.write(z.read(kml_files[0]))
+        try:
+            with zipfile.ZipFile(st.session_state["overlay_path"]) as z:
+                kml_files = [f for f in z.namelist() if f.endswith(".kml")]
+                if kml_files:
+                    extracted_path = os.path.join(tempfile.gettempdir(), "overlay.kml")
+                    with open(extracted_path, "wb") as f:
+                        f.write(z.read(kml_files[0]))
+                    st.session_state["overlay_path"] = extracted_path
+        except zipfile.BadZipFile:
+            st.warning("⚠️ Overlay file seems mislabeled or corrupted. Using as plain KML instead.")
 
 # ============================================================
 # BUILD MAP ONCE WHEN GRID GENERATED
@@ -516,3 +535,4 @@ if st.session_state.get("generated", False):
         st.form_submit_button("✅ All files ready — safe to download", disabled=True)
 else:
     st.info("👆 Upload AOI (KML/KMZ) and Overlay, adjust details, then click ▶ **Generate Grid**.")
+
